@@ -361,19 +361,18 @@ def get_ai_insights():
     """
     content = request.json
     stock_name = content.get('stock_name')
-    trend_data = content.get('trend_data') # Expects {'dates': [...], 'prices': [...], 'history_cutoff': ...}
+    trend_data = content.get('trend_data')
+    user_question = content.get('user_question')
 
     if not all([stock_name, trend_data]):
         return jsonify({'error': 'Missing stock_name or trend_data'}), 400
 
     try:
         # Format the trend data for the prompt
-        # We only use the historical data (up to history_cutoff)
-        cutoff = trend_data.get('history_cutoff', 100) # Default to 100
+        cutoff = trend_data.get('history_cutoff', 100)
         history_dates = trend_data['dates'][:cutoff]
         history_prices = trend_data['prices'][:cutoff]
         
-        # Create a simple string of the data
         data_string = ", ".join([f"{date}: ₹{price:.2f}" for date, price in zip(history_dates, history_prices)])
         
         start_date = history_dates[0]
@@ -381,29 +380,35 @@ def get_ai_insights():
         start_price = history_prices[0]
         end_price = history_prices[-1]
 
+        # --- TrendAI Persona ---
         system_prompt = (
-            "You are a helpful and highly detailed financial analyst. "
-            "Your goal is to provide a comprehensive analysis of a stock's recent performance based *only* on the provided data. "
-            "Do NOT provide financial advice or make future predictions. "
-            "Analyze the past trend only. "
-            "**Your response MUST be formatted using subtopics with point-wise content.** "
-            "Do NOT use markdown headings (like #, ##). "
-            "Use plain text for subtopics (e.g., 'Overall Trend:') followed by bulleted points (using '*' or '-')."
+            "You are TrendAI, a professional stock trader and financial advisor. "
+            "Your goal is to provide concise, point-wise, and highly detailed technical analysis. "
+            "Act as an expert who looks at data and gives sharp, actionable insights. "
+            "Do NOT provide generic disclaimers like 'I am an AI'. "
+            "Focus on support/resistance, trend direction, and volatility. "
+            "Format your response as a clean list of points."
         )
 
-        user_prompt = (
-            f"Please provide a detailed financial analysis for {stock_name}. "
-            f"Here is the 'Close' price data for the last {len(history_prices)} trading days, from {start_date} to {end_date}:\n"
-            f"Start Price ({start_date}): ₹{start_price:.2f}\n"
-            f"End Price ({end_date}): ₹{end_price:.2f}\n"
-            f"Full data series (Date: Price): {data_string}\n\n"
-            "Based *only* on this data, provide a detailed breakdown of the stock's performance. "
-            "Describe the overall trend, identify specific periods of significant price change, and mention any notable peaks or troughs. "
-            "Also, comment on the stock's volatility. "
-            "**Remember, you must use a 'subtopic: point-wise' format** (e.g., 'Volatility: - The stock showed...'). "
-            "Do not use markdown headings and do not give any investment advice."
+        # --- Construct User Prompt ---
+        base_context = (
+            f"Data for {stock_name} ({len(history_prices)} days, {start_date} to {end_date}):\\n"
+            f"Start: ₹{start_price:.2f}, End: ₹{end_price:.2f}\\n"
+            f"Series: {data_string}\\n\\n"
         )
 
+        if user_question:
+            user_prompt = (
+                f"{base_context}"
+                f"User Question: {user_question}\\n\\n"
+                "Based on the data provided, answer the user's question professionally and concisely in point-wise format."
+            )
+        else:
+            user_prompt = (
+                f"{base_context}"
+                "Provide a professional technical analysis of this stock's recent trend. "
+                "Identify key levels, trend direction, and potential outlook. Use point-wise format."
+            )
 
         print(f"--- Sending request to LM Studio for {stock_name} ---")
 
@@ -480,26 +485,38 @@ def get_historical_data():
         data.dropna(inplace=True)
         # --- End Cleaning ---
 
+        # --- FIX: Handle MultiIndex columns if present (common with new yfinance) ---
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.get_level_values(0)
+        # --------------------------------------------------------------------------
+
         # Format for lightweight-charts
-        ohlc_data = data[['Open', 'High', 'Low', 'Close']].copy()
-        ohlc_data.reset_index(inplace=True)
-        ohlc_data.rename(columns={'Date': 'time', 'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close'}, inplace=True)
-        ohlc_data['time'] = ohlc_data['time'].dt.strftime('%Y-%m-%d')
+        # Explicitly create time column from index to avoid renaming issues
         
+        # 1. OHLC
+        ohlc_data = data[['Open', 'High', 'Low', 'Close']].copy()
+        ohlc_data['time'] = ohlc_data.index.strftime('%Y-%m-%d')
+        ohlc_data.rename(columns={'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close'}, inplace=True)
+        # Reorder to ensure time is present and correct
+        ohlc_data = ohlc_data[['time', 'open', 'high', 'low', 'close']]
+        
+        # 2. Volume
         volume_data = data[['Volume']].copy()
-        volume_data.reset_index(inplace=True)
-        volume_data.rename(columns={'Date': 'time', 'Volume': 'value'}, inplace=True)
-        volume_data['time'] = volume_data['time'].dt.strftime('%Y-%m-%d')
+        volume_data['time'] = volume_data.index.strftime('%Y-%m-%d')
+        volume_data.rename(columns={'Volume': 'value'}, inplace=True)
+        volume_data = volume_data[['time', 'value']]
 
+        # 3. RSI
         rsi_data = data[['RSI_14']].copy()
-        rsi_data.reset_index(inplace=True)
-        rsi_data.rename(columns={'Date': 'time', 'RSI_14': 'value'}, inplace=True)
-        rsi_data['time'] = rsi_data['time'].dt.strftime('%Y-%m-%d')
+        rsi_data['time'] = rsi_data.index.strftime('%Y-%m-%d')
+        rsi_data.rename(columns={'RSI_14': 'value'}, inplace=True)
+        rsi_data = rsi_data[['time', 'value']]
 
+        # 4. SMA
         sma_data = data[['SMA_50']].copy()
-        sma_data.reset_index(inplace=True)
-        sma_data.rename(columns={'Date': 'time', 'SMA_50': 'value'}, inplace=True)
-        sma_data['time'] = sma_data['time'].dt.strftime('%Y-%m-%d')
+        sma_data['time'] = sma_data.index.strftime('%Y-%m-%d')
+        sma_data.rename(columns={'SMA_50': 'value'}, inplace=True)
+        sma_data = sma_data[['time', 'value']]
         
         chart_data = {
             'ohlc': json.loads(ohlc_data.to_json(orient='records')),
