@@ -309,6 +309,51 @@ def predict_endpoint():
     ticker = STOCK_LIST.get(stock_name)
     if not ticker:
         return jsonify({'error': 'Invalid stock_name'}), 400
+    # --- Handle Multiple Algorithms (Comparison) ---
+    if isinstance(algorithm_name, list):
+        print(f"Received comparison request for {ticker} on {future_date_str} using {algorithm_name}")
+        results = {}
+        
+        # Fetch data ONCE
+        try:
+            latest_data = yf.download(ticker, period='5d')
+            if latest_data.empty:
+                 return jsonify({'error': 'Could not fetch latest stock data.'}), 500
+            last_trading_day = latest_data.index[-1]
+            next_bday_str = get_next_business_day(last_trading_day)
+        except Exception as e:
+            return jsonify({'error': f"yfinance error: {str(e)}"}), 500
+
+        for algo in algorithm_name:
+            if algo not in ALGORITHMS:
+                results[algo] = {'error': f'Invalid algorithm: {algo}'}
+                continue
+                
+            if future_date_str == next_bday_str:
+                final_price, trend_data, error = make_one_day_prediction(ticker, algo)
+                pred_type = "1-Day Forecast (High Accuracy)"
+                warning = ""
+            else:
+                final_price, trend_data, warning = make_long_range_prediction(ticker, future_date_str, algo)
+                pred_type = "Long-Range Forecast (Speculative)"
+                error = warning if final_price is None else None
+
+            if final_price is None:
+                results[algo] = {'error': error}
+            else:
+                results[algo] = {
+                    'stock_name': stock_name,
+                    'ticker': ticker,
+                    'future_date': future_date_str,
+                    'algorithm_name': algo,
+                    'predicted_price': f"{final_price:.2f}",
+                    'trend_data': trend_data,
+                    'prediction_type': pred_type,
+                    'warning': warning
+                }
+        return jsonify(results)
+
+    # --- Handle Single Algorithm (Existing Logic) ---
     if algorithm_name not in ALGORITHMS:
         return jsonify({'error': 'Invalid algorithm_name'}), 400
         
