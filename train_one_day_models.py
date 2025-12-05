@@ -37,7 +37,32 @@ STOCK_LIST = {
     'Yes Bank': 'YESBANK.NS',
     'TCS': 'TCS.NS',
     'HDFC Bank': 'HDFCBANK.NS',
-    'ITC': 'ITC.NS'
+    'ITC': 'ITC.NS',
+    'Power Grid Corp': 'POWERGRID.NS',
+    'Bajaj Finserv': 'BAJAJFINSV.NS',
+    'Adani Ports': 'ADANIPORTS.NS',
+    'Tata Steel': 'TATASTEEL.NS',
+    'Asian Paints': 'ASIANPAINT.NS',
+    'JSW Steel': 'JSWSTEEL.NS',
+    'Bajaj Auto': 'BAJAJ-AUTO.NS',
+    'Lupin': 'LUPIN.NS',
+    'Hindalco': 'HINDALCO.NS',
+    'LTIMindtree': 'LTIM.NS',
+    'Grasim': 'GRASIM.NS',
+    'Cipla': 'CIPLA.NS',
+    'Tech Mahindra': 'TECHM.NS',
+    'Wipro': 'WIPRO.NS',
+    'Nestle India': 'NESTLEIND.NS',
+    'Adani Green': 'ADANIGREEN.NS',
+    'BEL': 'BEL.NS',
+    'Varun Beverages': 'VBL.NS',
+    'IndusInd Bank': 'INDUSINDBK.NS',
+    'Tata Consumer': 'TATACONSUM.NS',
+    'Zomato': 'ZOMATO.NS',
+    'Britannia': 'BRITANNIA.NS',
+    'SBI Life': 'SBILIFE.NS',
+    'HAL': 'HAL.NS',
+    'Trent': 'TRENT.NS'
 }
 TIME_STEP = 100 # Use 100 days of history
 START_DATE = '2015-01-01' # Use 10+ years of data
