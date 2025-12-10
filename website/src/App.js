@@ -9,9 +9,15 @@ import './App.css'; // Make sure this line exists
 import AdvancedChart from './AdvancedChart'; // Import the new chart component
 import FiftyTwoWeekCharts from './FiftyTwoWeekCharts'; // Import the new 52-week chart component
 import AiChatBot from './AiChatBot'; // Import the new ChatBot component
+import FinancialTeacher from './FinancialTeacher'; // Import the new Financial Teacher component
 import SearchableSelect from './SearchableSelect'; // Import the new searchable select component
+import PortfolioCalculator from './PortfolioCalculator';
+import MarketDashboard from './MarketDashboard';
+import PositionsDashboard from './PositionsDashboard'; // Import the new Portfolio Calculator
+import SentimentDashboard from './SentimentDashboard';
 
-// ----- Helper Functions (Copied from your stable version) -----
+
+
 function getNextBusinessDay() {
   let tomorrow = addBusinessDays(new Date(), 1);
   return format(tomorrow, 'yyyy-MM-dd');
@@ -324,7 +330,7 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true); // Loading state for initial auth check
 
   // --- Tabs State ---
-  const [activeTab, setActiveTab] = useState('home');
+  const [activeTab, setActiveTab] = useState('market');
 
   // --- Lifted State for ControlPanel (Home) ---
   const [stock, setStock] = useState('Infosys');
@@ -456,14 +462,14 @@ function App() {
       targetResult = compResult1; // Default to first algo for now
     }
 
-    if (!targetResult || !targetResult.trend_data) {
-      return "Please run a prediction first so I have data to analyze.";
-    }
+    // Allow chat even without prediction result (feature request)
+    const stockName = targetResult?.stock_name || null;
+    const trendData = targetResult?.trend_data || null;
 
     try {
       const response = await axios.post('http://127.0.0.1:5000/get-ai-insights', {
-        stock_name: targetResult.stock_name,
-        trend_data: targetResult.trend_data,
+        stock_name: stockName,
+        trend_data: trendData,
         user_question: userQuestion // Pass the custom question
       });
 
@@ -502,14 +508,29 @@ function App() {
         <>
           {/* Tab Navigation */}
           <div className="tab-menu">
+            <div className={`tab-item ${activeTab === 'market' ? 'active' : ''}`} onClick={() => setActiveTab('market')}>
+              Market
+            </div>
             <div className={`tab-item ${activeTab === 'home' ? 'active' : ''}`} onClick={() => setActiveTab('home')}>
-              Home
+              Prediction
             </div>
             <div className={`tab-item ${activeTab === 'comparison' ? 'active' : ''}`} onClick={() => setActiveTab('comparison')}>
               Comparison
             </div>
+            <div className={`tab-item ${activeTab === 'portfolio' ? 'active' : ''}`} onClick={() => setActiveTab('portfolio')}>
+              Portfolio
+            </div>
+            <div className={`tab-item ${activeTab === 'positions' ? 'active' : ''}`} onClick={() => setActiveTab('positions')}>
+              Positions
+            </div>
             <div className={`tab-item ${activeTab === 'fiftyTwoWeek' ? 'active' : ''}`} onClick={() => setActiveTab('fiftyTwoWeek')}>
               52 Week
+            </div>
+            <div className={`tab-item ${activeTab === 'sentiment' ? 'active' : ''}`} onClick={() => setActiveTab('sentiment')}>
+              Sentiment
+            </div>
+            <div className={`tab-item ${activeTab === 'education' ? 'active' : ''}`} onClick={() => setActiveTab('education')}>
+              Education
             </div>
           </div>
           <main className="content-area">
@@ -611,10 +632,37 @@ function App() {
               </div>
             )}
 
-            <AiChatBot
-              onGetInsights={handleGetAiInsights}
-              stockName={activeTab === 'home' ? stock : compStock}
-            />
+            {activeTab === 'sentiment' && (
+              <SentimentDashboard />
+            )}
+
+            {/* EDUCATION TAB CONTENT - Persist state by hiding instead of unmounting */}
+            <div style={{ display: activeTab === 'education' ? 'block' : 'none', width: '100%', height: '100%' }}>
+              <FinancialTeacher />
+            </div>
+
+            {/* MARKET TAB CONTENT */}
+            {activeTab === 'market' && (
+              <MarketDashboard />
+            )}
+
+            {/* POSITIONS TAB CONTENT */}
+            {activeTab === 'positions' && (
+              <PositionsDashboard />
+            )}
+
+            {/* PORTFOLIO TAB CONTENT */}
+            {activeTab === 'portfolio' && (
+              <PortfolioCalculator />
+            )}
+
+            {/* Show standard ChatBot on all tabs EXCEPT Education */}
+            {activeTab !== 'education' && (
+              <AiChatBot
+                onGetInsights={handleGetAiInsights}
+                stockName={activeTab === 'home' ? stock : (activeTab === 'comparison' ? compStock : 'Market Assistant')}
+              />
+            )}
 
           </main>
         </>

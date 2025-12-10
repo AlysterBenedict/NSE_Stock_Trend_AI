@@ -24,56 +24,36 @@ CORS(app)
 # --- 2. Define Constants ---
 TIME_STEP = 100
 STOCK_LIST = {
-    'Adani Enterprises': 'ADANIENT.NS',
-    'Adani Ports': 'ADANIPORTS.NS',
-    'Apollo Hospitals': 'APOLLOHOSP.NS',
-    'Asian Paints': 'ASIANPAINT.NS',
-    'Axis Bank': 'AXISBANK.NS',
-    'Bajaj Auto': 'BAJAJ-AUTO.NS',
-    'Bajaj Finance': 'BAJFINANCE.NS',
-    'Bajaj Finserv': 'BAJAJFINSV.NS',
-    'Bharti Airtel': 'BHARTIARTL.NS',
-    'BPCL': 'BPCL.NS',
-    'Britannia': 'BRITANNIA.NS',
-    'Cipla': 'CIPLA.NS',
-    'Coal India': 'COALINDIA.NS',
-    'Divis Lab': 'DIVISLAB.NS',
-    'Dr Reddys Labs': 'DRREDDY.NS',
-    'Eicher Motors': 'EICHERMOT.NS',
-    'Grasim': 'GRASIM.NS',
-    'HCL Tech': 'HCLTECH.NS',
-    'HDFC Bank': 'HDFCBANK.NS',
-    'HDFC Life': 'HDFCLIFE.NS',
-    'Hero MotoCorp': 'HEROMOTOCO.NS',
-    'Hindalco': 'HINDALCO.NS',
-    'Hindustan Unilever': 'HINDUNILVR.NS',
-    'ICICI Bank': 'ICICIBANK.NS',
-    'IndusInd Bank': 'INDUSINDBK.NS',
     'Infosys': 'INFY.NS',
-    'ITC': 'ITC.NS',
-    'JSW Steel': 'JSWSTEEL.NS',
-    'Kotak Mahindra Bank': 'KOTAKBANK.NS',
-    'L&T': 'LT.NS',
-    'LTIMindtree': 'LTIM.NS',
-    'M&M': 'M&M.NS',
-    'Maruti Suzuki': 'MARUTI.NS',
-    'Nestle India': 'NESTLEIND.NS',
-    'NTPC': 'NTPC.NS',
-    'ONGC': 'ONGC.NS',
-    'Power Grid Corp': 'POWERGRID.NS',
-    'Reliance': 'RELIANCE.NS',
-    'SBI Life': 'SBILIFE.NS',
-    'SBI': 'SBIN.NS',
-    'Sun Pharma': 'SUNPHARMA.NS',
-    'Tata Consumer': 'TATACONSUM.NS',
-    'Tata Motors': 'TATAMOTORS.NS',
-    'Tata Steel': 'TATASTEEL.NS',
+    'Yes Bank': 'YESBANK.NS',
     'TCS': 'TCS.NS',
+    'HDFC Bank': 'HDFCBANK.NS',
+    'ITC': 'ITC.NS',
+    'Power Grid Corp': 'POWERGRID.NS',
+    'Bajaj Finserv': 'BAJAJFINSV.NS',
+    'Adani Ports': 'ADANIPORTS.NS',
+    'Tata Steel': 'TATASTEEL.NS',
+    'Asian Paints': 'ASIANPAINT.NS',
+    'JSW Steel': 'JSWSTEEL.NS',
+    'Bajaj Auto': 'BAJAJ-AUTO.NS',
+    'Lupin': 'LUPIN.NS',
+    'Hindalco': 'HINDALCO.NS',
+    'LTIMindtree': 'LTIM.NS',
+    'Grasim': 'GRASIM.NS',
+    'Cipla': 'CIPLA.NS',
     'Tech Mahindra': 'TECHM.NS',
-    'Titan': 'TITAN.NS',
-    'UltraTech Cement': 'ULTRACEMCO.NS',
-    'UPL': 'UPL.NS',
-    'Wipro': 'WIPRO.NS'
+    'Wipro': 'WIPRO.NS',
+    'Nestle India': 'NESTLEIND.NS',
+    'Adani Green': 'ADANIGREEN.NS',
+    'BEL': 'BEL.NS',
+    'Varun Beverages': 'VBL.NS',
+    'IndusInd Bank': 'INDUSINDBK.NS',
+    'Tata Consumer': 'TATACONSUM.NS',
+    'Zomato': 'ZOMATO.NS',
+    'Britannia': 'BRITANNIA.NS',
+    'SBI Life': 'SBILIFE.NS',
+    'HAL': 'HAL.NS',
+    'Trent': 'TRENT.NS'
 }
 ALGORITHMS = [
     "LSTM", "LinearRegression", "DecisionTree", "RandomForest", "SVR", "XGBoost"
@@ -1056,119 +1036,6 @@ def calculate_portfolio():
         return jsonify({'error': str(e)}), 500
 
 
-# --- MARKET TAB ENDPOINT ---
-@app.route('/get-market-data', methods=['GET'])
-def get_market_data():
-    """
-    Fetches market data.
-    Mode 1: Overview (no params) -> Returns list of {name, symbol, price, change, pChange} for ALL stocks.
-    Mode 2: Detail (?ticker=...) -> Returns ALL info metrics + history for specific stock.
-    """
-    try:
-        specific_ticker = request.args.get('ticker')
-        
-        # --- MODE 2: DETAIL VIEW (ALL METRICS) ---
-        if specific_ticker:
-            print(f"Fetching detailed metrics for {specific_ticker}...")
-            stock = yf.Ticker(specific_ticker)
-            
-            # 1. Get ALL Info Metrics
-            info = stock.info
-            
-            # 2. Get History for Chart (1 Year)
-            hist = stock.history(period="1y")
-            
-            # Format History
-            chart_data = []
-            if not hist.empty:
-                # Reset index to get Date column if it's the index
-                hist.reset_index(inplace=True)
-                for _, row in hist.iterrows():
-                    # Handle different date formats/column names
-                    date_val = row.get('Date')
-                    if not date_val and 'Datetime' in row: date_val = row['Datetime']
-                    
-                    if date_val:
-                        if hasattr(date_val, 'strftime'):
-                             d_str = date_val.strftime('%Y-%m-%d')
-                        else:
-                             d_str = str(date_val).split(' ')[0]
-                             
-                        chart_data.append({
-                            'time': d_str,
-                            'value': row['Close']
-                        })
-
-            return jsonify({
-                'info': info, # Returns EVERYTHING: P/E, EPS, high52, low52, etc.
-                'chart': chart_data
-            })
-
-        # --- MODE 1: OVERVIEW (BULK FETCH) ---
-        else:
-            print("Fetching market overview...")
-            # Create list of tickers from STOCK_LIST
-            tickers = list(STOCK_LIST.values())
-            
-            # Bulk download matches standard yfinance usage
-            # threads=True is default, grouped_by='column' is default
-            data = yf.download(tickers, period="5d", progress=False)
-            
-            market_summary = []
-            
-            if not data.empty:
-                # yfinance returns MultiIndex columns: (Price, Ticker)
-                # We need Close and Open prices
-                if 'Close' in data:
-                    closes = data['Close']
-                    opens = data['Open']
-                else: 
-                     # Fallback if structure is different
-                    closes = data
-                    opens = data # Risk if open not available in fallback, but usually standard
-
-                # Check if we got enough data
-                if len(closes) >= 2:
-                    current_closes = closes.iloc[-1]
-                    prev_closes = closes.iloc[-2]
-                    current_opens = opens.iloc[-1]
-                    
-                    for name, ticker in STOCK_LIST.items():
-                        try:
-                            # Handle case where some tickers might fail
-                            if ticker not in current_closes: continue
-                            
-                            price = current_closes[ticker]
-                            prev = prev_closes[ticker]
-                            open_price = current_opens[ticker]
-                            
-                            if pd.isna(price) or pd.isna(prev): continue
-
-                            change = price - prev
-                            p_change = (change / prev) * 100
-                            
-                            market_summary.append({
-                                'name': name,
-                                'symbol': ticker,
-                                'price': round(float(price), 2),
-                                'open': round(float(open_price), 2) if not pd.isna(open_price) else 0.0,
-                                'close': round(float(prev), 2), # Previous Close as requested context
-                                'change': round(float(change), 2),
-                                'pChange': round(float(p_change), 2)
-                            })
-                        except Exception as inner_e:
-                            # print(f"Skipping {ticker}: {inner_e}")
-                            continue
-
-            return jsonify(market_summary)
-
-    except Exception as e:
-        print(f"Market Data Error: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
-
-
 def get_general_knowledge():
     """
     Dedicated endpoint for the Financial Teacher mode.
@@ -1212,166 +1079,6 @@ def get_general_knowledge():
     except Exception as e:
         print(f"Financial Teacher Error: {e}")
         return jsonify({'answer': "Class is dismissed momentarily (Error connecting to AI). Please check the server."}), 500
-
-
-@app.route('/get-sentiment', methods=['POST'])
-def get_sentiment():
-    """
-    Analyzes market sentiment for a specific stock using AI and News.
-    1. Fetches news from yfinance (Ticker or Search fallback).
-    2. Feeds headlines to Local LLM.
-    3. Returns Sentiment Score (0-100) and Classification.
-    """
-    try:
-        content = request.json
-        stock_name = content.get('stock_name')
-        
-        if not stock_name:
-            return jsonify({'error': 'Missing stock_name'}), 400
-
-        # Lookup Ticker
-        ticker_symbol = STOCK_LIST.get(stock_name)
-        if not ticker_symbol:
-            # Try reverse lookup
-            for name, tick in STOCK_LIST.items():
-                if tick == stock_name:
-                    ticker_symbol = tick
-                    stock_name = name
-                    break
-        
-        if not ticker_symbol:
-            ticker_symbol = f"{stock_name}.NS"
-
-        print(f"--- Fething News for Sentiment: {stock_name} ({ticker_symbol}) ---")
-        
-        news_items = []
-        
-        # STRATEGY 1: Ticker News
-        try:
-            stock_obj = yf.Ticker(ticker_symbol)
-            news_items = stock_obj.news
-        except Exception as e:
-            print(f"Ticker news fetch failed: {e}")
-
-        # STRATEGY 2: Search Fallback (if Ticker News empty)
-        if not news_items:
-            print(f"Ticker news empty, trying Search for '{stock_name}'...")
-            try:
-                # Search by company name (without .NS) for better results
-                search_query = stock_name.replace('.NS', '')
-                search_results = yf.Search(search_query, news_count=5).news
-                if search_results:
-                    news_items = search_results
-            except Exception as e:
-                 print(f"Search fallback failed: {e}")
-
-        if not news_items:
-            return jsonify({
-                'score': 50, 'label': 'Neutral', 
-                'summary': 'No recent news found via Ticker or Search.', 
-                'news': []
-            })
-
-        # DEBUG: Print first item structure
-        if news_items:
-            first_item = news_items[0]
-            print(f"DEBUG - Raw News Item Keys: {first_item.keys() if isinstance(first_item, dict) else 'Not a dict'}")
-            print(f"DEBUG - Raw First Item: {first_item}")
-
-        # Prepare for LLM
-        headlines = []
-        formatted_news = []
-        
-        for item in news_items[:5]:
-            # Try top-level first
-            title = item.get('title')
-            link = item.get('link')
-            pub_time = item.get('providerPublishTime')
-
-            # Fallback: Check inside 'content' dictionary (observed in debug)
-            if not title and 'content' in item:
-                content = item['content']
-                title = content.get('title')
-                
-                # Check for link in canonicalUrl or clickThroughUrl
-                if not link:
-                    c_url = content.get('canonicalUrl')
-                    if isinstance(c_url, dict): link = c_url.get('url')
-                    elif isinstance(c_url, str): link = c_url
-                
-                if not link:
-                     link = content.get('clickThroughUrl', {}).get('url')
-
-                if not pub_time:
-                    pub_time = content.get('pubDate') or 0
-
-            if title:
-                headlines.append(title)
-                formatted_news.append({'title': title, 'link': link, 'time': pub_time})
-
-        if not headlines:
-             # DEBUG: Expose keys in response to debug
-             debug_keys = []
-             debug_sample = {}
-             if news_items:
-                 try:
-                     debug_keys = list(news_items[0].keys()) if isinstance(news_items[0], dict) else [str(type(news_items[0]))]
-                     debug_sample = news_items[0]
-                 except: pass
-
-             return jsonify({
-                'score': 50, 'label': 'Neutral', 
-                'summary': 'News found but unable to extract headlines.', 
-                'news': [],
-                'debug_keys': debug_keys,
-                'debug_sample': debug_sample
-            })
-            
-        print(f"Analyzing {len(headlines)} headlines...")
-
-        # 2. Call LLM
-        system_prompt = (
-            "You are a Financial Sentiment Analyst. "
-            "Analyze the provided news headlines for a specific stock. "
-            "Determine the overall sentiment score (0-100) where 0 is Extremely Bearish, 50 is Neutral, and 100 is Extremely Bullish. "
-            "Also provide a label (Bullish/Bearish/Neutral) and a brief 1-sentence summary reason. "
-            "Output valid JSON ONLY: {\"score\": 75, \"label\": \"Bullish\", \"summary\": \"Positive earnings report...\"}"
-        )
-        
-        user_content = f"Stock: {stock_name}\nHeadlines:\n" + "\n".join([f"- {h}" for h in headlines])
-        
-        payload = {
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content}
-            ],
-            "model": LOCAL_MODEL_NAME,
-            "temperature": 0.1,
-            "max_tokens": 200
-        }
-
-        response = requests.post(LM_STUDIO_API_URL, json=payload)
-        response.raise_for_status()
-        
-        ai_content = response.json()['choices'][0]['message']['content'].strip()
-        if ai_content.startswith("```"): 
-            ai_content = ai_content.replace("```json", "").replace("```", "")
-        
-        sentiment_data = json.loads(ai_content)
-        
-        # Combine AI result with news links
-        result = {
-            'score': sentiment_data.get('score', 50),
-            'label': sentiment_data.get('label', 'Neutral'),
-            'summary': sentiment_data.get('summary', 'Analysis complete.'),
-            'news': formatted_news
-        }
-        
-        return jsonify(result)
-
-    except Exception as e:
-        print(f"Error in Sentiment Analysis: {e}")
-        return jsonify({'error': str(e)}), 500
 
 
 # --- 7. Run the App ---
