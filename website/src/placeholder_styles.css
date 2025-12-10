@@ -1,0 +1,36 @@
+/* Add to App.css */
+.sentiment-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 60px 20px;
+    background: rgba(255, 255, 255, 0.4);
+    backdrop-filter: blur(15px);
+    border-radius: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    margin-top: 40px;
+}
+
+.placeholder-img {
+    width: 150px;
+    height: 150px;
+    object-fit: contain;
+    margin-bottom: 30px;
+    opacity: 0.9;
+    filter: drop-shadow(0 10px 15px rgba(100, 116, 139, 0.2));
+}
+
+.placeholder-text h3 {
+    font-size: 1.8rem;
+    color: #334155;
+    margin-bottom: 15px;
+}
+
+.placeholder-text p {
+    color: #64748b;
+    font-size: 1.1rem;
+    max-width: 500px;
+    line-height: 1.6;
+}
