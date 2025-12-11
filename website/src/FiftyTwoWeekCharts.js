@@ -239,7 +239,7 @@ const FiftyTwoWeekCharts = ({ stockName }) => {
             });
         };
 
-    }, [stockName, visibility]); // Re-run if stock or visibility changes
+    }, [stockName]); // Re-run if stock changes
 
     return (
         <div className="advanced-chart-wrapper">
