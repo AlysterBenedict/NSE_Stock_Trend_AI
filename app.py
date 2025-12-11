@@ -1214,13 +1214,122 @@ def get_general_knowledge():
         return jsonify({'answer': "Class is dismissed momentarily (Error connecting to AI). Please check the server."}), 500
 
 
+
+def analyze_stock_sentiment(stock_name, ticker_symbol):
+    """
+    Helper function to analyze sentiment for a stock.
+    Returns: dict with score, label, summary, news
+    """
+    print(f"--- Fetching News for Sentiment: {stock_name} ({ticker_symbol}) ---")
+    news_items = []
+    
+    # STRATEGY 1: Ticker News
+    try:
+        stock_obj = yf.Ticker(ticker_symbol)
+        news_items = stock_obj.news
+    except Exception as e:
+        print(f"Ticker news fetch failed: {e}")
+
+    # STRATEGY 2: Search Fallback (if Ticker News empty)
+    if not news_items:
+        print(f"Ticker news empty, trying Search for '{stock_name}'...")
+        try:
+            # Search by company name (without .NS) for better results
+            search_query = stock_name.replace('.NS', '')
+            search_results = yf.Search(search_query, news_count=5).news
+            if search_results:
+                news_items = search_results
+        except Exception as e:
+             print(f"Search fallback failed: {e}")
+
+    if not news_items:
+        return {'score': 50, 'label': 'Neutral', 'summary': 'No recent news found.', 'news': []}
+
+    # Prepare for LLM
+    headlines = []
+    formatted_news = []
+    
+    for item in news_items[:5]:
+        title = item.get('title')
+        link = item.get('link')
+        pub_time = item.get('providerPublishTime')
+
+        # Fallback: Check inside 'content' dictionary
+        if not title and 'content' in item:
+            content = item['content']
+            title = content.get('title')
+            if not link:
+                c_url = content.get('canonicalUrl')
+                if isinstance(c_url, dict): link = c_url.get('url')
+                elif isinstance(c_url, str): link = c_url
+            if not link:
+                 link = content.get('clickThroughUrl', {}).get('url')
+            if not pub_time:
+                pub_time = content.get('pubDate') or 0
+
+        if title:
+            headlines.append(title)
+            formatted_news.append({'title': title, 'link': link, 'time': pub_time})
+
+    if not headlines:
+         return {'score': 50, 'label': 'Neutral', 'summary': 'News found but unable to extract headlines.', 'news': []}
+        
+    print(f"Analyzing {len(headlines)} headlines...")
+
+    # Call LLM
+    system_prompt = (
+        "You are a Financial Sentiment Analyst. "
+        "Analyze the provided news headlines for a specific stock. "
+        "Determine the overall sentiment score (0-100) where 0 is Extremely Bearish, 50 is Neutral, and 100 is Extremely Bullish. "
+        "Also provide a label (Bullish/Bearish/Neutral) and a brief 1-sentence summary reason. "
+        "Output valid JSON ONLY: {\"score\": 75, \"label\": \"Bullish\", \"summary\": \"Positive earnings...\"}"
+    )
+    
+    user_content = f"Stock: {stock_name}\nHeadlines:\n" + "\n".join([f"- {h}" for h in headlines])
+    
+    try:
+        payload = {
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ],
+            "model": LOCAL_MODEL_NAME,
+            "temperature": 0.3,
+            "max_tokens": 150
+        }
+        
+        response = requests.post(LM_STUDIO_API_URL, json=payload, headers={"Content-Type": "application/json"})
+        
+        if response.status_code == 200:
+            ai_content = response.json()['choices'][0]['message']['content']
+            # Clean Markdown if present
+            clean_json = ai_content.replace('```json', '').replace('```', '').strip()
+            
+            try:
+                result = json.loads(clean_json)
+                return {
+                    'score': result.get('score', 50),
+                    'label': result.get('label', 'Neutral'),
+                    'summary': result.get('summary', 'Analysis unavailable'),
+                    'news': formatted_news
+                }
+            except:
+                # Fallback Regex
+                import re
+                score_match = re.search(r'"score":\s*(\d+)', clean_json)
+                score = int(score_match.group(1)) if score_match else 50
+                return {'score': score, 'label': 'Neutral', 'summary': clean_json[:100], 'news': formatted_news}
+    except Exception as e:
+        print(f"LLM Error: {e}")
+        return {'score': 50, 'label': 'Error', 'summary': 'AI Analysis failed.', 'news': formatted_news}
+
+    return {'score': 50, 'label': 'Neutral', 'summary': 'Default.', 'news': formatted_news}
+
+
 @app.route('/get-sentiment', methods=['POST'])
 def get_sentiment():
     """
-    Analyzes market sentiment for a specific stock using AI and News.
-    1. Fetches news from yfinance (Ticker or Search fallback).
-    2. Feeds headlines to Local LLM.
-    3. Returns Sentiment Score (0-100) and Classification.
+    Analyzes market sentiment using the shared helper logic.
     """
     try:
         content = request.json
@@ -1242,138 +1351,227 @@ def get_sentiment():
         if not ticker_symbol:
             ticker_symbol = f"{stock_name}.NS"
 
-        print(f"--- Fething News for Sentiment: {stock_name} ({ticker_symbol}) ---")
-        
-        news_items = []
-        
-        # STRATEGY 1: Ticker News
-        try:
-            stock_obj = yf.Ticker(ticker_symbol)
-            news_items = stock_obj.news
-        except Exception as e:
-            print(f"Ticker news fetch failed: {e}")
-
-        # STRATEGY 2: Search Fallback (if Ticker News empty)
-        if not news_items:
-            print(f"Ticker news empty, trying Search for '{stock_name}'...")
-            try:
-                # Search by company name (without .NS) for better results
-                search_query = stock_name.replace('.NS', '')
-                search_results = yf.Search(search_query, news_count=5).news
-                if search_results:
-                    news_items = search_results
-            except Exception as e:
-                 print(f"Search fallback failed: {e}")
-
-        if not news_items:
-            return jsonify({
-                'score': 50, 'label': 'Neutral', 
-                'summary': 'No recent news found via Ticker or Search.', 
-                'news': []
-            })
-
-        # DEBUG: Print first item structure
-        if news_items:
-            first_item = news_items[0]
-            print(f"DEBUG - Raw News Item Keys: {first_item.keys() if isinstance(first_item, dict) else 'Not a dict'}")
-            print(f"DEBUG - Raw First Item: {first_item}")
-
-        # Prepare for LLM
-        headlines = []
-        formatted_news = []
-        
-        for item in news_items[:5]:
-            # Try top-level first
-            title = item.get('title')
-            link = item.get('link')
-            pub_time = item.get('providerPublishTime')
-
-            # Fallback: Check inside 'content' dictionary (observed in debug)
-            if not title and 'content' in item:
-                content = item['content']
-                title = content.get('title')
-                
-                # Check for link in canonicalUrl or clickThroughUrl
-                if not link:
-                    c_url = content.get('canonicalUrl')
-                    if isinstance(c_url, dict): link = c_url.get('url')
-                    elif isinstance(c_url, str): link = c_url
-                
-                if not link:
-                     link = content.get('clickThroughUrl', {}).get('url')
-
-                if not pub_time:
-                    pub_time = content.get('pubDate') or 0
-
-            if title:
-                headlines.append(title)
-                formatted_news.append({'title': title, 'link': link, 'time': pub_time})
-
-        if not headlines:
-             # DEBUG: Expose keys in response to debug
-             debug_keys = []
-             debug_sample = {}
-             if news_items:
-                 try:
-                     debug_keys = list(news_items[0].keys()) if isinstance(news_items[0], dict) else [str(type(news_items[0]))]
-                     debug_sample = news_items[0]
-                 except: pass
-
-             return jsonify({
-                'score': 50, 'label': 'Neutral', 
-                'summary': 'News found but unable to extract headlines.', 
-                'news': [],
-                'debug_keys': debug_keys,
-                'debug_sample': debug_sample
-            })
-            
-        print(f"Analyzing {len(headlines)} headlines...")
-
-        # 2. Call LLM
-        system_prompt = (
-            "You are a Financial Sentiment Analyst. "
-            "Analyze the provided news headlines for a specific stock. "
-            "Determine the overall sentiment score (0-100) where 0 is Extremely Bearish, 50 is Neutral, and 100 is Extremely Bullish. "
-            "Also provide a label (Bullish/Bearish/Neutral) and a brief 1-sentence summary reason. "
-            "Output valid JSON ONLY: {\"score\": 75, \"label\": \"Bullish\", \"summary\": \"Positive earnings report...\"}"
-        )
-        
-        user_content = f"Stock: {stock_name}\nHeadlines:\n" + "\n".join([f"- {h}" for h in headlines])
-        
-        payload = {
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content}
-            ],
-            "model": LOCAL_MODEL_NAME,
-            "temperature": 0.1,
-            "max_tokens": 200
-        }
-
-        response = requests.post(LM_STUDIO_API_URL, json=payload)
-        response.raise_for_status()
-        
-        ai_content = response.json()['choices'][0]['message']['content'].strip()
-        if ai_content.startswith("```"): 
-            ai_content = ai_content.replace("```json", "").replace("```", "")
-        
-        sentiment_data = json.loads(ai_content)
-        
-        # Combine AI result with news links
-        result = {
-            'score': sentiment_data.get('score', 50),
-            'label': sentiment_data.get('label', 'Neutral'),
-            'summary': sentiment_data.get('summary', 'Analysis complete.'),
-            'news': formatted_news
-        }
-        
+        result = analyze_stock_sentiment(stock_name, ticker_symbol)
         return jsonify(result)
 
     except Exception as e:
-        print(f"Error in Sentiment Analysis: {e}")
         return jsonify({'error': str(e)}), 500
 
 
+
+# --- INVESTMENT ENGINE ENDPOINT ---
+@app.route('/investment-engine', methods=['POST'])
+def investment_engine():
+    """
+    Advanced Investment Engine.
+    1. Filter stocks based on Principal (if applicable).
+    2. Run predictions for ALL 30 stocks.
+    3. Calculate Metrics:
+        - Projected Profit %
+        - Stability (Volatility)
+        - NSE Rank (Current Daily Gain Rank)
+    4. Select Top Candidates for Sentiment Analysis.
+    5. Final Rank & AI Advice.
+    """
+    try:
+        content = request.json
+        principal = float(content.get('principal', 100000))
+        withdrawal_date_str = content.get('withdrawal_date')
+        
+        if not withdrawal_date_str:
+            return jsonify({'error': 'Missing withdrawal_date'}), 400
+
+        print(f"--- Running Investment Engine: Principal={principal}, Date={withdrawal_date_str} ---")
+        
+        # 1. Fetch Current Market Data for NSE Rank
+        # Reuse logic from get_market_data (Mode 1)
+        tickers = list(STOCK_LIST.values())
+        curr_data = yf.download(tickers, period="5d", progress=False)
+        
+        market_ranks = {} # Ticker -> Rank (1 = Best Gainer)
+        current_prices = {} 
+
+        if not curr_data.empty:
+            # Handle MultiIndex
+            closes = curr_data['Close'] if 'Close' in curr_data else curr_data
+            
+            if len(closes) >= 2:
+                latest = closes.iloc[-1]
+                prev = closes.iloc[-2]
+                
+                # Calculate % Change
+                changes = []
+                for name, ticker in STOCK_LIST.items():
+                    if ticker in latest.index: # Check if ticker is in columns (Series) or just iterate keys
+                         # In yfinance download(tickers), columns are tickers
+                         pass
+                    
+                    # Safe extraction
+                    try:
+                        c = float(latest[ticker])
+                        p = float(prev[ticker])
+                        if not pd.isna(c) and not pd.isna(p):
+                            pct = ((c - p) / p) * 100
+                            changes.append({'ticker': ticker, 'pct': pct, 'price': float(c)})
+                            current_prices[ticker] = float(c)
+                    except:
+                        continue
+                
+                # Sort by % Change Descending (Top Gainers first)
+                changes.sort(key=lambda x: x['pct'], reverse=True)
+                
+                # Assign Ranks
+                for idx, item in enumerate(changes):
+                    market_ranks[item['ticker']] = idx + 1
+        
+        # 2. Batch Processing Loop
+        candidates = []
+        
+        withdrawal_date = datetime.strptime(withdrawal_date_str, "%Y-%m-%d").date()
+        today = datetime.now().date()
+        
+        # Determine Algorithm Strategy: ENSEMBLE (LSTM + RandomForest)
+        algo_1 = "LSTM"
+        algo_2 = "RandomForest"
+
+        for name, ticker in STOCK_LIST.items():
+            try:
+                # SKIP if no current price (means data fetch failed)
+                if ticker not in current_prices: continue
+                
+                curr_price = current_prices[ticker]
+                
+                # Predict with Algo 1 (LSTM)
+                p1, trend1, err1 = make_long_range_prediction(ticker, withdrawal_date_str, algo_1)
+                
+                # Predict with Algo 2 (RF)
+                p2, trend2, err2 = make_long_range_prediction(ticker, withdrawal_date_str, algo_2)
+                
+                final_price = None
+                
+                # Ensemble Logic
+                if p1 is not None and p2 is not None:
+                    final_price = (p1 + p2) / 2
+                    # Use LSTM trend for visualization as it's generally smoother/more representative of "AI"
+                    # Or average the trends? Averaging trends is complex. Let's stick to LSTM trend for UI.
+                    final_trend = trend1 
+                elif p1 is not None:
+                    final_price = p1
+                    final_trend = trend1
+                elif p2 is not None:
+                    final_price = p2
+                    final_trend = trend2
+                
+                if final_price is None: continue
+                
+                # Metrics
+                profit_pct = ((final_price - curr_price) / curr_price) * 100
+                
+                # Stability (Volatility of last 6 months)
+                hist = yf.download(ticker, period="6mo", progress=False)
+                if not hist.empty:
+                    # Fix for MultiIndex
+                    if isinstance(hist.columns, pd.MultiIndex):
+                        hist.columns = hist.columns.get_level_values(0)
+
+                    daily_ret = hist['Close'].pct_change().dropna()
+                    volatility = daily_ret.std() * 100 # In percentage
+                else:
+                    volatility = 2.0 # Default fallback
+                
+                # NSE Rank
+                rank = market_ranks.get(ticker, 99)
+                
+                # RANKING STRATEGY: HIGHEST PROFIT FIRST
+                # We simply store profit_pct and will sort by it later.
+                # raw_score is basically profit_pct now for sorting purposes.
+                raw_score = profit_pct 
+                
+                candidates.append({
+                    'name': name,
+                    'ticker': ticker,
+                    'current_price': round(curr_price, 2),
+                    'predicted_price': round(final_price, 2),
+                    'profit_pct': round(profit_pct, 2),
+                    'volatility': round(volatility, 2),
+                    'nse_rank': rank,
+                    'raw_score': raw_score
+                })
+                
+            except Exception as e:
+                print(f"Error processing {name}: {e}")
+                continue
+
+        # 3. Filter Top Candidates
+        # PRIMARY SORT: Profit Percentage (Highest First)
+        candidates.sort(key=lambda x: x['profit_pct'], reverse=True)
+        top_candidates = candidates[:3] 
+        
+        final_results = []
+        
+        # 4. Sentiment & Advice for Top 3
+        for cand in top_candidates:
+            # REAL Sentiment Analysis using shared logic
+            sent_data = analyze_stock_sentiment(cand['name'], cand['ticker'])
+            
+            cand['sentiment_score'] = sent_data.get('score', 50)
+            cand['sentiment_summary'] = sent_data.get('summary', '')
+            
+            # 5. Get History for Chart
+            # Need historical prices + forecast
+            _, trend_data, _ = make_long_range_prediction(cand['ticker'], withdrawal_date_str, "LSTM")
+            cand['trend_data'] = trend_data
+            
+            final_results.append(cand)
+
+        # 6. Generate Global Advice with LLM
+        # "this result is passed to gemma local llm and an advice is generated"
+        
+        # Structured Prompt for Fintech-style Output
+        advice_prompt = (
+            "You are a Senior Investment Strategist for a top Fintech firm. Review these top 3 stock picks:\n"
+        )
+        for c in final_results:
+             advice_prompt += (
+                 f"- {c['name']} ({c['ticker']}): Profit {c['profit_pct']:.1f}%, "
+                 f"Volatility {c['volatility']:.1f}%, Sentiment {c['sentiment_score']}/100.\n"
+             )
+        advice_prompt += (
+            "\nProvide a professional investment memo in strict Markdown format:\n\n"
+            "### 📊 Strategic Analysis\n"
+            "* [Point 1: Analyze profit vs risk balance]\n"
+            "* [Point 2: Comment on market sentiment impact]\n\n"
+            "### 🎯 Final Verdict\n"
+            "**[Verdict: Aggressive Growth / Balanced / Conservative]**\n"
+            "[One sentence justification].\n\n"
+            "Keep it concise, professional, and under 120 words."
+        )
+        
+        ai_advice = "Advice unavailable."
+        try:
+             pay = {
+                 "messages": [{"role": "user", "content": advice_prompt}],
+                 "model": LOCAL_MODEL_NAME,
+                 "temperature": 0.7,
+                 "max_tokens": 200
+             }
+             resp = requests.post(LM_STUDIO_API_URL, json=pay)
+             if resp.status_code == 200:
+                 ai_advice = resp.json()['choices'][0]['message']['content']
+        except:
+             pass
+
+        return jsonify({
+            'top_stocks': final_results,
+            'ai_advice': ai_advice
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 # --- 7. Run the App ---
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)

@@ -15,6 +15,7 @@ import PortfolioCalculator from './PortfolioCalculator';
 import MarketDashboard from './MarketDashboard';
 import PositionsDashboard from './PositionsDashboard'; // Import the new Portfolio Calculator
 import SentimentDashboard from './SentimentDashboard';
+import InvestmentEngine from './InvestmentEngine'; // Import Investment Engine
 
 
 
@@ -510,6 +511,9 @@ function App() {
             <div className={`tab-item ${activeTab === 'market' ? 'active' : ''}`} onClick={() => setActiveTab('market')}>
               Market
             </div>
+            <div className={`tab-item ${activeTab === 'investment' ? 'active' : ''}`} onClick={() => setActiveTab('investment')}>
+              Invest Engine  {/* New Tab */}
+            </div>
             <div className={`tab-item ${activeTab === 'home' ? 'active' : ''}`} onClick={() => setActiveTab('home')}>
               Prediction
             </div>
@@ -560,7 +564,13 @@ function App() {
               </>
             )}
 
+            {/* INVESTMENT ENGINE TAB CONTENT */}
+            {activeTab === 'investment' && (
+              <InvestmentEngine />
+            )}
+
             {/* COMPARISON TAB CONTENT */}
+
             {activeTab === 'comparison' && (
               <div className="comparison-container">
                 <ComparisonControlPanel
