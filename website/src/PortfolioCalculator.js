@@ -3,6 +3,39 @@ import axios from 'axios';
 import { createChart, ColorType } from 'lightweight-charts';
 import SearchableSelect from './SearchableSelect'; // Reuse the stock selector
 
+const stockOptions = [
+    { value: "Infosys", label: "Infosys (INFY.NS)" },
+    { value: "Yes Bank", label: "Yes Bank (YESBANK.NS)" },
+    { value: "TCS", label: "TCS (TCS.NS)" },
+    { value: "HDFC Bank", label: "HDFC Bank (HDFCBANK.NS)" },
+    { value: "ITC", label: "ITC (ITC.NS)" },
+    { value: "Power Grid Corp", label: "Power Grid Corp (POWERGRID.NS)" },
+    { value: "Bajaj Finserv", label: "Bajaj Finserv (BAJAJFINSV.NS)" },
+    { value: "Adani Ports", label: "Adani Ports (ADANIPORTS.NS)" },
+    { value: "Tata Steel", label: "Tata Steel (TATASTEEL.NS)" },
+    { value: "Asian Paints", label: "Asian Paints (ASIANPAINT.NS)" },
+    { value: "JSW Steel", label: "JSW Steel (JSWSTEEL.NS)" },
+    { value: "Bajaj Auto", label: "Bajaj Auto (BAJAJ-AUTO.NS)" },
+    { value: "Lupin", label: "Lupin (LUPIN.NS)" },
+    { value: "Hindalco", label: "Hindalco (HINDALCO.NS)" },
+    { value: "LTIMindtree", label: "LTIMindtree (LTIM.NS)" },
+    { value: "Grasim", label: "Grasim (GRASIM.NS)" },
+    { value: "Cipla", label: "Cipla (CIPLA.NS)" },
+    { value: "Tech Mahindra", label: "Tech Mahindra (TECHM.NS)" },
+    { value: "Wipro", label: "Wipro (WIPRO.NS)" },
+    { value: "Nestle India", label: "Nestle India (NESTLEIND.NS)" },
+    { value: "Adani Green", label: "Adani Green (ADANIGREEN.NS)" },
+    { value: "BEL", label: "BEL (BEL.NS)" },
+    { value: "Varun Beverages", label: "Varun Beverages (VBL.NS)" },
+    { value: "IndusInd Bank", label: "IndusInd Bank (INDUSINDBK.NS)" },
+    { value: "Tata Consumer", label: "Tata Consumer (TATACONSUM.NS)" },
+    { value: "Zomato", label: "Zomato (ZOMATO.NS)" },
+    { value: "Britannia", label: "Britannia (BRITANNIA.NS)" },
+    { value: "SBI Life", label: "SBI Life (SBILIFE.NS)" },
+    { value: "HAL", label: "HAL (HAL.NS)" },
+    { value: "Trent", label: "Trent (TRENT.NS)" }
+];
+
 const PortfolioCalculator = () => {
     // Inputs
     const [stock, setStock] = useState('Infosys'); // Default
@@ -46,7 +79,7 @@ const PortfolioCalculator = () => {
         try {
             const response = await axios.post('http://127.0.0.1:5000/calculate-portfolio', {
                 stock_name: stock,
-                principal: principal,
+                principal: parseFloat(principal), // Ensure number
                 future_date: targetDate
             });
             setResult(response.data);
@@ -102,7 +135,8 @@ const PortfolioCalculator = () => {
                 // Create a constant line for principal
                 // We need to match the start and end dates of the projected data
                 if (areaData.length > 0) {
-                    const baselineData = areaData.map(d => ({ time: d.time, value: principal }));
+                    const numPrincipal = parseFloat(principal); // Ensure number
+                    const baselineData = areaData.map(d => ({ time: d.time, value: numPrincipal }));
 
                     areaSeries.setData(areaData);
                     baselineSeries.setData(baselineData);
@@ -138,41 +172,10 @@ const PortfolioCalculator = () => {
                     <div className="form-group">
                         <label>Select Stock</label>
                         <SearchableSelect
-                            options={[
-                                { value: "Infosys", label: "Infosys (INFY.NS)" },
-                                { value: "Yes Bank", label: "Yes Bank (YESBANK.NS)" },
-                                { value: "TCS", label: "TCS (TCS.NS)" },
-                                { value: "HDFC Bank", label: "HDFC Bank (HDFCBANK.NS)" },
-                                { value: "ITC", label: "ITC (ITC.NS)" },
-                                { value: "Power Grid Corp", label: "Power Grid Corp (POWERGRID.NS)" },
-                                { value: "Bajaj Finserv", label: "Bajaj Finserv (BAJAJFINSV.NS)" },
-                                { value: "Adani Ports", label: "Adani Ports (ADANIPORTS.NS)" },
-                                { value: "Tata Steel", label: "Tata Steel (TATASTEEL.NS)" },
-                                { value: "Asian Paints", label: "Asian Paints (ASIANPAINT.NS)" },
-                                { value: "JSW Steel", label: "JSW Steel (JSWSTEEL.NS)" },
-                                { value: "Bajaj Auto", label: "Bajaj Auto (BAJAJ-AUTO.NS)" },
-                                { value: "Lupin", label: "Lupin (LUPIN.NS)" },
-                                { value: "Hindalco", label: "Hindalco (HINDALCO.NS)" },
-                                { value: "LTIMindtree", label: "LTIMindtree (LTIM.NS)" },
-                                { value: "Grasim", label: "Grasim (GRASIM.NS)" },
-                                { value: "Cipla", label: "Cipla (CIPLA.NS)" },
-                                { value: "Tech Mahindra", label: "Tech Mahindra (TECHM.NS)" },
-                                { value: "Wipro", label: "Wipro (WIPRO.NS)" },
-                                { value: "Nestle India", label: "Nestle India (NESTLEIND.NS)" },
-                                { value: "Adani Green", label: "Adani Green (ADANIGREEN.NS)" },
-                                { value: "BEL", label: "BEL (BEL.NS)" },
-                                { value: "Varun Beverages", label: "Varun Beverages (VBL.NS)" },
-                                { value: "IndusInd Bank", label: "IndusInd Bank (INDUSINDBK.NS)" },
-                                { value: "Tata Consumer", label: "Tata Consumer (TATACONSUM.NS)" },
-                                { value: "Zomato", label: "Zomato (ZOMATO.NS)" },
-                                { value: "Britannia", label: "Britannia (BRITANNIA.NS)" },
-                                { value: "SBI Life", label: "SBI Life (SBILIFE.NS)" },
-                                { value: "HAL", label: "HAL (HAL.NS)" },
-                                { value: "Trent", label: "Trent (TRENT.NS)" }
-                            ]}
+                            options={stockOptions}
                             onChange={setStock}
                             placeholder="Search (e.g., Infosys)"
-                            initialValue={stock}
+                            value={stock}
                         />
                     </div>
 
@@ -182,7 +185,7 @@ const PortfolioCalculator = () => {
                             type="number"
                             className="glass-input"
                             value={principal}
-                            onChange={(e) => setPrincipal(e.target.value)}
+                            onChange={(e) => setPrincipal(parseFloat(e.target.value) || 0)}
                         />
                     </div>
 

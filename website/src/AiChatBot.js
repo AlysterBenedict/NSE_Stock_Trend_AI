@@ -21,7 +21,12 @@ const AiChatBot = ({ onGetInsights, stockName }) => {
         "Analyze the trend for "
     ];
 
-    const toggleChat = () => setIsOpen(!isOpen);
+    const toggleChat = () => {
+        if (isOpen && isFullScreen) {
+            setIsFullScreen(false);
+        }
+        setIsOpen(!isOpen);
+    };
 
     const toggleFullScreen = (e) => {
         e.stopPropagation();

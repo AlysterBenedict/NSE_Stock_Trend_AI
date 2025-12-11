@@ -210,7 +210,7 @@ const AdvancedChart = ({ stockName }) => {
         };
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [stockName, visibility]); // Added visibility to deps or ignored it. Using ignore for now as per previous intent, but actually I added it to deps in the code above. Wait, the previous code had it. Let's stick to stockName and use the ref pattern if needed, or just ignore. I'll use the ignore line.
+    }, [stockName]); // Removed visibility from deps to prevent full re-render
 
     return (
         <div className="advanced-chart-wrapper">

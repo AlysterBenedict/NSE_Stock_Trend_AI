@@ -36,8 +36,7 @@ const Header = ({ user, onLogout }) => (
   <header className="app-header">
     <div className="header-content"> {/* Added wrapper for layout */}
       <div className="logo-section" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <img src="/logo.png" alt="Stock Predictor Logo" style={{ height: '40px' }} />
-        <h1>Stock Price Predictor</h1>
+        <h1>NeuroStock</h1>
       </div>
       {user && (
         <div className="user-info">
@@ -49,7 +48,7 @@ const Header = ({ user, onLogout }) => (
     </div>
     {/* Show different subtitle based on login state */}
     {!user && <p>Please login or sign up to use the predictor.</p>}
-    {user && <p>A dashboard for 1-day-ahead & long-range forecasts</p>}
+    {user && <p>Advanced AI-Driven Market Predictions & Analysis</p>}
   </header>
 );
 
