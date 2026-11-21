@@ -1,0 +1,134 @@
+.searchable-select-wrapper {
+  position: relative;
+  width: 100%;
+  z-index: 20;
+}
+
+.searchable-select-wrapper.is-open {
+  z-index: 60;
+}
+
+.searchable-input-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.searchable-lead {
+  position: absolute;
+  left: 14px;
+  font-size: 18px !important;
+  color: var(--on-surface-muted);
+  pointer-events: none;
+}
+
+.searchable-input {
+  width: 100%;
+  height: 46px;
+  padding: 0 42px 0 40px;
+  background: var(--surface-low);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--on-surface);
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  outline: none;
+  text-overflow: ellipsis;
+  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.searchable-input::placeholder {
+  color: var(--on-surface-muted);
+  font-weight: 500;
+}
+
+.searchable-input:hover {
+  background: var(--surface-container);
+}
+
+.searchable-input:focus {
+  background: var(--surface-lowest);
+  border-color: var(--primary-fixed-dim);
+  box-shadow: var(--ring);
+}
+
+.arrow-icon {
+  position: absolute;
+  right: 12px;
+  font-size: 20px !important;
+  color: var(--on-surface-variant);
+  transition: transform var(--dur) var(--ease);
+  pointer-events: none;
+}
+
+.arrow-icon.open {
+  transform: rotate(180deg);
+}
+
+.searchable-options-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--surface-lowest);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg), 0 0 0 1px var(--hairline);
+  max-height: 300px;
+  overflow-y: auto;
+  animation: ss-in 160ms var(--ease);
+}
+
+@keyframes ss-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.searchable-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--on-surface);
+  font-size: 13px;
+  transition: background 120ms ease;
+}
+
+.searchable-option:hover {
+  background: var(--surface-low);
+}
+
+.searchable-option.selected {
+  background: var(--option-selected-bg);
+  color: var(--on-primary-fixed-variant);
+  font-weight: 600;
+}
+
+.searchable-check {
+  font-size: 18px !important;
+  color: var(--primary);
+}
+
+.searchable-option.no-results {
+  justify-content: center;
+  color: var(--on-surface-muted);
+  cursor: default;
+}
+
+.searchable-option.no-results:hover {
+  background: transparent;
+}

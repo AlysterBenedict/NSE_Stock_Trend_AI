@@ -1,0 +1,25 @@
+# Core Web API
+flask
+flask-cors
+requests
+
+# Data & Quantitative Finance
+yfinance
+numpy
+pandas
+scipy
+arch
+
+# Machine Learning & Gradient Boosting
+joblib
+scikit-learn
+xgboost
+lightgbm
+catboost
+tqdm
+
+# Deep Learning & Financial NLP (FinBERT)
+# NOTE: On Windows with an NVIDIA RTX 4060 GPU, install PyTorch CUDA first:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+torch
+transformers

@@ -1,0 +1,353 @@
+/* ==========================================================================
+   Design tokens
+   Sage / dusty-rose / warm-brown palette on a cool lavender-tinted surface.
+   ========================================================================== */
+:root {
+  /* Surfaces */
+  --surface: #f9f9ff;
+  --surface-lowest: #ffffff;
+  --surface-low: #f0f3ff;
+  --surface-container: #e7eeff;
+  --surface-high: #dee8ff;
+  --surface-highest: #d9e3f9;
+  --surface-glass: rgba(255, 255, 255, 0.82);
+  --surface-glass-strong: rgba(255, 255, 255, 0.92);
+
+  /* Content */
+  --on-surface: #121c2c;
+  --on-surface-variant: #424843;
+  --on-surface-muted: #6b726c;
+  --outline: #727973;
+  --outline-variant: #c2c8c2;
+  --hairline: rgba(18, 28, 44, 0.07);
+
+  /* Primary — sage */
+  --primary: #456150;
+  --primary-container: #5d7a68;
+  --on-primary: #ffffff;
+  --on-primary-container: #eefff1;
+  --primary-fixed: #caead4;
+  --primary-fixed-dim: #afceb9;
+  --on-primary-fixed: #042013;
+  --on-primary-fixed-variant: #314d3d;
+
+  /* Interactive filled primary controls */
+  --btn-primary-bg: #456150;
+  --btn-primary-hover: #5d7a68;
+  --btn-primary-fg: #ffffff;
+  --btn-primary-border: transparent;
+
+  /* Secondary — warm brown */
+  --secondary: #7f5536;
+  --secondary-container: #fec69f;
+  --on-secondary-container: #795132;
+  --secondary-fixed: #ffdcc5;
+  --secondary-fixed-dim: #f2bb95;
+  --on-secondary-fixed-variant: #643e21;
+
+  /* Tertiary — dusty rose */
+  --tertiary: #804c55;
+  --tertiary-container: #9c646d;
+  --tertiary-fixed: #ffd9dd;
+  --tertiary-fixed-dim: #f8b5be;
+  --on-tertiary-fixed: #350e17;
+  --on-tertiary-fixed-variant: #693841;
+
+  /* Inverse */
+  --inverse-surface: #273141;
+  --inverse-on-surface: #ebf1ff;
+  --inverse-primary: #afceb9;
+
+  /* Feedback */
+  --error: #ba1a1a;
+  --error-container: #ffdad6;
+  --on-error-container: #93000a;
+
+  /* Typography */
+  --font-display: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
+  --radius-full: 999px;
+
+  /* Elevation */
+  --shadow-xs: 0 1px 4px rgba(18, 28, 44, 0.04);
+  --shadow-sm: 0 10px 26px -8px rgba(45, 55, 72, 0.06);
+  --shadow-md: 0 16px 40px -12px rgba(45, 55, 72, 0.1);
+  --shadow-lg: 0 24px 60px -16px rgba(45, 55, 72, 0.18);
+  --shadow-hover: 0 18px 38px -10px rgba(93, 122, 104, 0.2);
+  --ring: 0 0 0 3px rgba(175, 206, 185, 0.55);
+
+  /* Semantic surface & component tints (light) */
+  --badge-up-border: transparent;
+  --badge-down-border: transparent;
+  --badge-secondary-border: transparent;
+  --card-top-sheen: none;
+  --bar-up: var(--primary-container);
+  --bar-down: var(--tertiary-fixed-dim);
+  --mag-up: var(--primary-container);
+  --mag-down: var(--tertiary-container);
+  --blob-sage: rgba(175, 206, 185, 0.24);
+  --blob-rose: rgba(255, 217, 221, 0.28);
+  --blob-mist: rgba(222, 232, 255, 0.48);
+  --header-bg: rgba(249, 249, 255, 0.88);
+  --header-border: rgba(18, 28, 44, 0.06);
+  --header-shadow: 0 1px 10px rgba(18, 28, 44, 0.03);
+  --footer-bg: rgba(255, 255, 255, 0.72);
+  --card-border: rgba(18, 28, 44, 0.055);
+  --card-border-hover: rgba(93, 122, 104, 0.25);
+  --well-bg: rgba(240, 243, 255, 0.52);
+  --well-border: rgba(18, 28, 44, 0.045);
+  --overlay-bg: rgba(249, 249, 255, 0.82);
+  --table-head-bg: rgba(240, 243, 255, 0.65);
+  --table-row-hover: rgba(240, 243, 255, 0.55);
+  --table-divider: rgba(18, 28, 44, 0.045);
+  --nav-divider: rgba(18, 28, 44, 0.1);
+  --tile-primary-bg: rgba(202, 234, 212, 0.65);
+  --tile-secondary-bg: rgba(255, 220, 197, 0.72);
+  --tile-tertiary-bg: rgba(255, 217, 221, 0.75);
+  --hero-up-bg: rgba(202, 234, 212, 0.38);
+  --hero-down-bg: rgba(255, 217, 221, 0.42);
+  --featured-bg: rgba(202, 234, 212, 0.38);
+  --featured-border: rgba(69, 97, 80, 0.16);
+  --callout-secondary-bg: rgba(255, 220, 197, 0.55);
+  --note-card-bg: rgba(240, 243, 255, 0.72);
+  --auth-highlight-bg: rgba(255, 255, 255, 0.65);
+  --chat-canvas-bg: rgba(249, 249, 255, 0.45);
+  --assistant-panel-bg: rgba(255, 255, 255, 0.94);
+  --assistant-head-bg: rgba(240, 243, 255, 0.65);
+  --assistant-body-bg: rgba(249, 249, 255, 0.55);
+  --option-selected-bg: rgba(202, 234, 212, 0.55);
+  --session-open-halo: rgba(202, 234, 212, 0.9);
+  --primary-btn-shadow: 0 8px 20px -8px rgba(69, 97, 80, 0.55);
+  --primary-btn-shadow-hover: 0 12px 24px -8px rgba(69, 97, 80, 0.6);
+  --spinner-track: rgba(69, 97, 80, 0.2);
+  --spinner-on-primary-track: rgba(255, 255, 255, 0.32);
+  --scrollbar-thumb: rgba(66, 72, 67, 0.2);
+  --scrollbar-thumb-hover: rgba(66, 72, 67, 0.32);
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur: 220ms;
+
+  /* Layout */
+  --gutter: 24px;
+  --content-max: 1440px;
+}
+
+:root[data-theme='dark'] {
+  /* Surfaces — velvety midnight obsidian-slate */
+  --surface: #0b0f17;
+  --surface-lowest: #121824;
+  --surface-low: #171f2e;
+  --surface-container: #1d2739;
+  --surface-high: #253147;
+  --surface-highest: #2e3d57;
+  --surface-glass: rgba(18, 24, 36, 0.84);
+  --surface-glass-strong: rgba(22, 30, 44, 0.94);
+
+  /* Content */
+  --on-surface: #ebf0f7;
+  --on-surface-variant: #a9b4c4;
+  --on-surface-muted: #7b889c;
+  --outline: #5f6d82;
+  --outline-variant: #324056;
+  --hairline: rgba(235, 240, 247, 0.08);
+
+  /* Primary — luminous sage text/accents + deep forest-sage filled controls */
+  --primary: #86c8a0;
+  --primary-container: #2b4a3a;
+  --on-primary: #eefaf2;
+  --on-primary-container: #ddf5e6;
+  --primary-fixed: rgba(134, 200, 160, 0.14);
+  --primary-fixed-dim: #6ca884;
+  --on-primary-fixed: #ddf5e6;
+  --on-primary-fixed-variant: #a6dbb9;
+
+  --btn-primary-bg: #315442;
+  --btn-primary-hover: #3d6751;
+  --btn-primary-fg: #eefaf2;
+  --btn-primary-border: rgba(134, 200, 160, 0.28);
+
+  /* Secondary — warm bronze / sand */
+  --secondary: #e2b184;
+  --secondary-container: #4a311e;
+  --on-secondary-container: #ffe0c4;
+  --secondary-fixed: rgba(226, 177, 132, 0.14);
+  --secondary-fixed-dim: #c79367;
+  --on-secondary-fixed-variant: #f4caa4;
+
+  /* Tertiary — soft dusty rose */
+  --tertiary: #e58b99;
+  --tertiary-container: #5c313a;
+  --tertiary-fixed: rgba(229, 139, 153, 0.14);
+  --tertiary-fixed-dim: #c47683;
+  --on-tertiary-fixed: #ffe0e5;
+  --on-tertiary-fixed-variant: #f5b4be;
+
+  /* Inverse */
+  --inverse-surface: #182330;
+  --inverse-on-surface: #ebf0f7;
+  --inverse-primary: #86c8a0;
+
+  /* Feedback */
+  --error: #f29690;
+  --error-container: rgba(186, 26, 26, 0.22);
+  --on-error-container: #ffc7c2;
+
+  /* Badges, bars, sheen, shadows & ultra-restrained ambient depth */
+  --badge-up-border: rgba(134, 200, 160, 0.24);
+  --badge-down-border: rgba(229, 139, 153, 0.24);
+  --badge-secondary-border: rgba(226, 177, 132, 0.24);
+  --card-top-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --bar-up: #6db389;
+  --bar-down: #b96e7a;
+  --mag-up: #6db389;
+  --mag-down: #c97785;
+
+  --shadow-xs: 0 1px 4px rgba(0, 0, 0, 0.32);
+  --shadow-sm: 0 12px 30px -10px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 20px 46px -12px rgba(0, 0, 0, 0.62);
+  --shadow-lg: 0 28px 64px -16px rgba(0, 0, 0, 0.74);
+  --shadow-hover: 0 20px 40px -10px rgba(0, 0, 0, 0.7);
+  --ring: 0 0 0 3px rgba(134, 200, 160, 0.28);
+
+  --blob-sage: rgba(69, 97, 80, 0.09);
+  --blob-rose: rgba(128, 76, 85, 0.07);
+  --blob-mist: rgba(45, 72, 118, 0.09);
+  --header-bg: rgba(11, 15, 23, 0.84);
+  --header-border: rgba(235, 240, 247, 0.08);
+  --header-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  --footer-bg: rgba(14, 19, 29, 0.84);
+  --card-border: rgba(235, 240, 247, 0.07);
+  --card-border-hover: rgba(134, 200, 160, 0.3);
+  --well-bg: rgba(11, 15, 23, 0.58);
+  --well-border: rgba(235, 240, 247, 0.06);
+  --overlay-bg: rgba(11, 15, 23, 0.8);
+  --table-head-bg: #151c2a;
+  --table-row-hover: rgba(37, 49, 71, 0.42);
+  --table-divider: rgba(235, 240, 247, 0.055);
+  --nav-divider: rgba(235, 240, 247, 0.1);
+  --tile-primary-bg: rgba(134, 200, 160, 0.14);
+  --tile-secondary-bg: rgba(226, 177, 132, 0.14);
+  --tile-tertiary-bg: rgba(229, 139, 153, 0.14);
+  --hero-up-bg: rgba(134, 200, 160, 0.11);
+  --hero-down-bg: rgba(229, 139, 153, 0.11);
+  --featured-bg: rgba(134, 200, 160, 0.12);
+  --featured-border: rgba(134, 200, 160, 0.28);
+  --callout-secondary-bg: rgba(226, 177, 132, 0.12);
+  --note-card-bg: rgba(23, 31, 46, 0.72);
+  --auth-highlight-bg: rgba(18, 24, 36, 0.74);
+  --chat-canvas-bg: rgba(11, 15, 23, 0.55);
+  --assistant-panel-bg: rgba(18, 24, 36, 0.96);
+  --assistant-head-bg: rgba(23, 31, 46, 0.9);
+  --assistant-body-bg: rgba(11, 15, 23, 0.62);
+  --option-selected-bg: rgba(134, 200, 160, 0.18);
+  --session-open-halo: rgba(134, 200, 160, 0.28);
+  --primary-btn-shadow: 0 8px 22px -6px rgba(0, 0, 0, 0.55);
+  --primary-btn-shadow-hover: 0 12px 26px -6px rgba(0, 0, 0, 0.68);
+  --spinner-track: rgba(134, 200, 160, 0.22);
+  --spinner-on-primary-track: rgba(238, 250, 242, 0.28);
+  --scrollbar-thumb: rgba(235, 240, 247, 0.15);
+  --scrollbar-thumb-hover: rgba(235, 240, 247, 0.28);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--on-surface);
+  background: var(--surface);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  overscroll-behavior-y: none;
+  transition: background-color 200ms var(--ease), color 200ms var(--ease);
+}
+
+::selection {
+  background: var(--primary-fixed);
+  color: var(--on-primary-fixed);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+code {
+  font-family: var(--font-mono);
+}
+
+/* Scrollbars — quiet, thin */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

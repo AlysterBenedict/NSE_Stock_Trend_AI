@@ -1,156 +1,121 @@
-# NSE Stock Trend Predictor AI
+# NeuroStock — NSE Stock Trend Predictor AI
 
 ## 📌 Project Overview
-The **NSE Stock Trend Predictor AI** is a sophisticated full-stack application designed to forecast stock prices for major National Stock Exchange (NSE) listed companies. It leverages a hybrid machine learning approach, combining high-accuracy short-term models with speculative long-term forecasters, and integrates a **Local LLM (Large Language Model)** via LM Studio to provide qualitative "AI Insights" based on technical indicators.
+**NeuroStock (NSE Stock Trend Predictor AI)** is a full-stack quantitative forecasting and financial analysis platform for National Stock Exchange (NSE) listed equities. It pairs a **GPU-accelerated State-of-the-Art ML Stack** (stationary log-return GBDTs + PyTorch TCN-BiGRU-Attention + Out-of-Fold Stacking Ensemble + Direct Multi-Horizon Quantile Forecasting + GARCH(1,1) Student-t Monte Carlo + FinBERT sentiment) with a **Local LLM** via LM Studio for conversational market insights and financial education.
 
 ## 🚀 Key Features
 
-*   **1-Day High-Accuracy Forecast**: Uses feature-rich models trained on OHLCV data + Technical Indicators (RSI, SMA) to predict the next day's closing price.
-*   **Long-Range Speculative Forecast**: Uses a walk-forward approach to predict prices for future dates (highly speculative).
-*   **Hybrid Model Architecture**:
-    *   **LSTM (Long Short-Term Memory)**: For capturing temporal dependencies in time-series data.
-    *   **Ensemble Regressors**: XGBoost, RandomForest, SVR, LinearRegression, DecisionTree.
-*   **AI Insights**: Integrates with a local LLM (e.g., Gemma, Llama via LM Studio) to act as a "Financial Analyst," explaining market trends in plain English.
-*   **User Authentication**: Integrated Firebase Authentication for secure user sign-up and login.
-*   **Interactive UI**: A modern React-based frontend using `lightweight-charts` for professional-grade financial plotting.
-*   **Comprehensive Data**: Fetches real-time and historical data using `yfinance`.
+* **1-Day Stationary Log-Return Forecast**: Predicts next-day log returns from **133 stationary & cross-sectional alpha features** (multi-horizon returns, candlestick microstructure, EMA/MACD/RSI/ADX/Stochastic, Garman-Klass & ATR volatility, MFI/OBV/VWAP flow, Nifty 50 `^NSEI` & India VIX `^INDIAVIX` macro regime context, lagged global cross-asset drivers, cross-sectional percentile ranks, and cyclical calendar encodings) — eliminating raw-price non-stationarity and tree extrapolation failure.
+* **Direct Multi-Horizon Forecasting + 90% Confidence Cones**: Trains direct models across horizons $h \in \{1, 5, 10, 21, 63\}$ trading days with LightGBM quantile regression (`q10`, `q50`, `q90`) and Bayesian-shrunk equilibrium drift beyond 63 days — eliminating recursive walk-forward drift explosion.
+* **State-of-the-Art Model Lineup** (Purged Walk-Forward CV + Out-of-Sample Benchmarks):
+  * **Ensemble (Recommended)**: Non-negative convex stacking meta-learner trained on strictly out-of-fold predictions of `LightGBM`, `CatBoost`, `XGBoost`, `AttentionNet`, `RandomForest`, `SVR`, and `Ridge`.
+  * **AttentionNet**: PyTorch **Multi-Scale Dilated TCN + 2-Layer BiGRU + Multi-Head Self-Attention** trained with Huber loss, `AdamW`, Cosine LR schedule, and CUDA AMP mixed precision.
+  * **GBDT & Classical Suite**: `LightGBM`, `CatBoost`, `XGBoost`, `RandomForest`, `SVR`, and `Ridge`.
+* **Institutional Portfolio Projector**: 10,000-path vectorized **GARCH(1,1) Student-t Monte Carlo** simulation with Bayesian drift shrinkage, returning P10/P50/P90 wealth cones, Sharpe Ratio, Sortino Ratio, Max Drawdown, 95% VaR/CVaR, and Probability of Profit.
+* **Multi-Factor AI Investment Engine**: Ranks NSE equities via a 5-factor **Risk-Adjusted Alpha Score** (Forecasted Sharpe 35%, Ensemble Consensus 20%, Downside Stability 15%, Relative Strength vs Nifty 50 15%, and FinBERT Sentiment 15%).
+* **FinBERT News Sentiment Analysis**: Local `ProsusAI/finbert` financial transformer scoring up to 12 articles with exponential recency decay, plus optional LM Studio executive synthesis.
+* **AI Market Assistant & Financial Tutor**: Conversational `TrendAI` market analyst and `FinTeach` educator powered by LM Studio.
 
 ## 🛠️ Tech Stack
 
-### Backend
-*   **Language**: Python 3.x
-*   **Framework**: Flask
-*   **ML Libraries**: TensorFlow/Keras, Scikit-learn, XGBoost
-*   **Data Processing**: Pandas, NumPy, yfinance
-*   **Serialization**: Joblib
+### Backend & ML
+* **Language**: Python 3.10+ (CUDA-enabled Conda environment recommended for NVIDIA GPUs)
+* **Framework**: Flask (Application Factory + Blueprints), Flask-CORS
+* **Deep Learning & Financial NLP**: PyTorch (CUDA AMP FP16/TF32), Hugging Face Transformers (`ProsusAI/finbert`)
+* **GBDT & Statistical Libraries**: LightGBM, CatBoost, XGBoost, Scikit-learn, SciPy, `arch` (GARCH)
+* **Data Processing**: Pandas, NumPy, yfinance, Joblib
 
 ### Frontend
-*   **Core**: React 18, React DOM
-*   **State Management/Data**: Axios
-*   **Visualization**: Lightweight Charts (TradingView)
-*   **Utilities**: date-fns, web-vitals
-*   **Authentication**: Firebase SDK
-*   **Testing**: Jest, React Testing Library
-*   **Styling**: CSS Modules / Standard CSS
-
-### AI / LLM
-*   **Tool**: LM Studio (Local Inference Server)
-*   **Model**: Compatible with GGUF models (e.g., `google/gemma-3-4b`, Llama 3)
+* **Core**: React 18, React DOM
+* **HTTP Client**: Centralized Axios API client (`services/apiClient.js`)
+* **Visualization**: Lightweight Charts (TradingView)
+* **Authentication**: Firebase SDK
+* **Testing**: Jest, React Testing Library
 
 ## 📂 Project Structure
 
 ```
 Stock_Predictor/
-├── app.py                     # Main Flask application entry point
-├── train_one_day_models.py    # Script to train accurate 1-day feature-rich models
-├── train_long_range_models.py # Script to train long-range speculative models
-├── stock_models/              # Directory stores trained models (.h5, .joblib)
-│   └── one_day/               # Subdirectory for 1-day specific models
-├── website/                   # React Frontend project
-│   ├── src/                   # Source code for React app
-│   ├── public/                # Static assets
-│   └── package.json           # Node dependencies
-└── README.md                  # Project documentation
+├── backend/
+│   ├── app.py                                    # Flask application factory (create_app) & entry point
+│   ├── config.py                                 # Centralized constants, SOTA algorithm list & paths
+│   ├── requirements.txt                          # Python dependencies
+│   ├── routes/                                   # Thin Flask Blueprints
+│   │   ├── ai_routes.py                          # /get-ai-insights, /get-general-knowledge
+│   │   ├── market_routes.py                      # /get-market-data
+│   │   ├── portfolio_routes.py                   # /calculate-portfolio, /investment-engine
+│   │   ├── prediction_routes.py                  # /predict, /historical-data
+│   │   └── sentiment_routes.py                   # /get-sentiment
+│   └── services/                                 # Reusable quantitative & AI services
+│       ├── ai_assistant_service.py               # TrendAI & FinTeach orchestration
+│       ├── attention_net.py                      # PyTorch TCN + BiGRU + Multi-Head Attention model
+│       ├── feature_engineering.py                # 133 stationary alpha, cross-sectional & macro regime features
+│       ├── investment_engine_service.py          # 5-factor Risk-Adjusted Alpha Ranker
+│       ├── llm_client.py                         # Shared LM Studio client
+│       ├── market_data_service.py                # yfinance download, chart formatting & ticker lookup
+│       ├── model_registry.py                     # Loader for .pt, .cbm, .joblib & metrics_summary.json
+│       ├── portfolio_service.py                  # 10,000-path GARCH(1,1)-t Monte Carlo engine
+│       ├── prediction_service.py                 # 1-day & direct multi-horizon inference
+│       └── sentiment_service.py                  # ProsusAI/finbert + recency decay scorer
+├── ml/                                           # GPU/multi-core training pipelines
+│   ├── training_utils.py                         # Purged walk-forward CV, GPU/CPU trainers & stacker
+│   ├── train_one_day_models.py                   # 1-day stationary log-return pipeline (--stocks, --resume)
+│   └── train_long_range_models.py                # Direct multi-horizon (5/10/21/63d) + quantile pipeline
+├── models/                                       # Trained artifacts (.pt, .cbm, .joblib) & metrics_summary.json
+│   ├── one_day/
+│   └── long_range/
+├── frontend/                                     # React 18 SPA (feature-sliced src/)
+├── tests/                                        # Endpoint & integration verification scripts
+├── scripts/
+│   └── generate_technical_spec.py
+├── docs/                                         # Technical specs, reports & presentations
+└── README.md
 ```
 
-## ⚙️ Installation & Setup
+## ⚙️ Installation & Manual Retraining (NVIDIA GPU / Conda)
 
-### 1. Prerequisites
-*   **Python 3.8+** installed.
-*   **Node.js 16+** and **npm** installed.
-*   (Optional) **LM Studio** installed for AI Insights features.
+### 1. Activate Your Conda Environment & Install GPU Dependencies
+Install **PyTorch with CUDA** first so `AttentionNet` and `FinBERT` run natively on your NVIDIA GPU on Windows, then install the remaining packages:
+```powershell
+conda activate "<your-conda-env-name>"
+cd "c:\Users\bened\Documents\Alyster Coding\PROJECTS\Stock_Predictor"
 
-### 2. Backend Setup
-1.  Navigate to the project root:
-    ```bash
-    cd "C:\Users\bened\Documents\Alyster Coding\Stock_Predictor"
-    ```
-2.  Install Python dependencies:
-    ```bash
-    pip install flask flask-cors yfinance numpy pandas joblib scikit-learn tensorflow xgboost
-    ```
-3.  **Train the Models** (Required before first run):
-    *   Train the accurate 1-day models:
-        ```bash
-        python train_one_day_models.py
-        ```
-    *   Train the long-range models:
-        ```bash
-        python train_long_range_models.py
-        ```
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+pip install -r backend/requirements.txt
+```
+Verify GPU detection:
+```powershell
+python -c "import torch; print('CUDA:', torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
+```
+
+### 2. Retrain the Global Cross-Sectional Panel Models
+Trains unified multi-seed bagged **Global Cross-Sectional Panel** models across **all 58 NSE stocks (2005–present, ~150,000+ rows)** with 133 stationary + cross-sectional + lagged global macro features, OOF variance calibration, and shrinkage stacking:
+```powershell
+python ml/train_one_day_models.py
+python ml/train_long_range_models.py --resume
+```
+Out-of-sample benchmark metrics (Directional Accuracy, MAPE, RMSE, Skill vs Naive, Rank IC, ICIR, and Long-Short Sharpe) are saved to `models/metrics_summary.json` under `GLOBAL_PANEL` and per-ticker keys.
 
 ### 3. Frontend Setup
-1.  Navigate to the `website` directory:
-    ```bash
-    cd website
-    ```
-2.  Install dependencies:
-    npm install
-    ```
-
-### 4. Firebase Setup
-1.  Go to the [Firebase Console](https://console.firebase.google.com/) and create a new project.
-2.  Navigate to **Authentication** -> **Sign-in method** and enable **Email/Password** (or your preferred providers).
-3.  Go to **Project Settings** -> **General** and register a web app.
-4.  Copy the `firebaseConfig` object.
-5.  Create a file named `firebase.js` in `website/src/` (if it doesn't exist) and add:
-    ```javascript
-    // website/src/firebase.js
-    import { initializeApp } from "firebase/app";
-    import { getAuth } from "firebase/auth";
-
-    const firebaseConfig = {
-      apiKey: "YOUR_API_KEY",
-      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-      projectId: "YOUR_PROJECT_ID",
-      storageBucket: "YOUR_PROJECT_ID.appspot.com",
-      messagingSenderId: "YOUR_SENDER_ID",
-      appId: "YOUR_APP_ID"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    export const auth = getAuth(app);
-    export default app;
-    ```
-
-### 4. LM Studio Setup (For AI Insights)
-1.  Download and install **LM Studio**.
-2.  Load a model (e.g., `google/gemma-3-4b-it`).
-3.  Start the **Local Inference Server**.
-4.  Ensure the server is running at `http://127.0.0.1:1234`.
-5.  *Note: If your port is different, update `LM_STUDIO_API_URL` in `app.py`.*
+```powershell
+cd "c:\Users\bened\Documents\Alyster Coding\PROJECTS\Stock_Predictor\frontend"
+npm install
+```
 
 ## 🏃‍♂️ Running the Application
 
-### Step 1: Start the Backend
-Open a terminal in the project root and run:
-```bash
-python app.py
+**Terminal 1 — Backend:**
+```powershell
+conda activate "<your-conda-env-name>"
+cd "c:\Users\bened\Documents\Alyster Coding\PROJECTS\Stock_Predictor"
+python backend/app.py
 ```
-*The server will start at `http://0.0.0.0:5000`.*
 
-### Step 2: Start the Frontend
-Open a new terminal in the `website` folder and run:
-```bash
+**Terminal 2 — Frontend:**
+```powershell
+cd "c:\Users\bened\Documents\Alyster Coding\PROJECTS\Stock_Predictor\frontend"
 npm start
 ```
-*The application will open in your browser at `http://localhost:3000`.*
-
-## 📡 API Endpoints
-
-### `POST /predict`
-Generates a price prediction.
-*   **Body**: `{ "stock_name": "Infosys", "future_date": "2024-12-10", "algorithm_name": "LSTM" }`
-*   **Returns**: Predicted price, trend data for charting.
-
-### `POST /get-ai-insights`
-Generates text analysis using the local LLM.
-*   **Body**: `{ "stock_name": "Infosys", "trend_data": {...} }`
-*   **Returns**: `{ "insights": "Based on the RSI..." }`
-
-### `GET /historical-data`
-Fetches historical OHLCV, RSI, and SMA data for charting.
-*   **Query**: `?stock_name=Infosys`
 
 ## ⚠️ Disclaimer
-This tool is for **educational and research purposes only**. The "Long-Range" forecasts are highly speculative. Do not use this application for real financial trading.
+This tool is for **educational and research purposes only**. Financial markets are inherently stochastic and forecasts do not guarantee future returns. Do not use this application for real financial trading.
