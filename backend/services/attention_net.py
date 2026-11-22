@@ -51,7 +51,7 @@ class CausalDilatedConvBlock(nn.Module):
 class TemporalAttentionNet(nn.Module):
     """Global Cross-Sectional TCN + BiGRU + Multi-Head Attention + Entity FiLM Conditioning.
 
-    Shares temporal representation weights across all 58 NSE stocks while specializing per-stock
+    Shares temporal representation weights across all 100 NSE stocks while specializing per-stock
     and per-sector dynamics through learned entity embeddings + Feature-wise Linear Modulation (FiLM).
     """
 

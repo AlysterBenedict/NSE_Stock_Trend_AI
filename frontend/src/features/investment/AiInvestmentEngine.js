@@ -24,7 +24,7 @@ const METHODOLOGY_STEPS = [
     step: '01',
     icon: 'query_stats',
     title: 'Stacking Ensemble Return',
-    detail: 'Forecasts target-date return across 58 liquid NSE bluechips.',
+    detail: 'Forecasts target-date return across 100 liquid NSE bluechips.',
   },
   {
     step: '02',
@@ -204,10 +204,10 @@ const AiInvestmentEngine = () => {
   return (
     <div className="page-stack">
       <PageHeader
-        eyebrow="Multi-Factor NSE 58 Screening"
+        eyebrow="Multi-Factor NSE 100 Screening"
         icon="auto_awesome"
         title="AI Investment Engine"
-        description="Screens 58 liquid NSE constituents using Stacking Ensemble forecasts, GARCH volatility risk calibration, and FinBERT news sentiment."
+        description="Screens 100 liquid NSE constituents using Stacking Ensemble forecasts, GARCH volatility risk calibration, and FinBERT news sentiment."
         actions={
           status === 'COMPLETE' && (
             <button
@@ -316,7 +316,7 @@ const AiInvestmentEngine = () => {
                     </h3>
                     <span className="inverse-card__sub">
                       {status === 'COMPLETE'
-                        ? 'NSE 58 Multi-Factor Pipeline'
+                        ? 'NSE 100 Multi-Factor Pipeline'
                         : 'Volatility · Forecast · Sentiment'}
                     </span>
                   </div>
@@ -361,7 +361,7 @@ const AiInvestmentEngine = () => {
               <EmptyState
                 icon="auto_awesome"
                 title="Quantitative Equity Screening"
-                description="Specify your principal capital and withdrawal date on the left to evaluate 58 NSE bluechips and rank the top three risk-adjusted candidates."
+                description="Specify your principal capital and withdrawal date on the left to evaluate 100 NSE bluechips and rank the top three risk-adjusted candidates."
               />
 
               <div className="methodology-grid">
@@ -391,7 +391,7 @@ const AiInvestmentEngine = () => {
                 <h2 className="processing-hero__stock">{currentStock}</h2>
                 <p className="processing-hero__copy">
                   Evaluating Stacking Ensemble return projections, GARCH volatility risk, and FinBERT headline
-                  sentiment across NSE 58 constituents.
+                  sentiment across NSE 100 constituents.
                 </p>
                 <div className="processing-hero__bar">
                   <div className="processing-hero__fill" style={{ width: `${progressPct}%` }} />

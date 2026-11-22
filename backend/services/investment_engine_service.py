@@ -71,7 +71,7 @@ def _build_investment_advice(top_stocks):
 
 
 def run_investment_engine(principal, withdrawal_date_str):
-    """Rank all 58 NSE stocks via 5-factor Risk-Adjusted Alpha Score using the cached live panel."""
+    """Rank all 100 NSE stocks via 5-factor Risk-Adjusted Alpha Score using the cached live panel."""
     print(f"--- Running Global Panel Investment Engine: Principal={principal}, Date={withdrawal_date_str} ---")
     panel_df, raw_map, macro_df = get_live_universe_panel(force_refresh=False)
 
@@ -80,7 +80,7 @@ def run_investment_engine(principal, withdrawal_date_str):
         nifty_s = macro_df["nifty_close"].dropna()
         nifty_3m_ret = float((nifty_s.iloc[-1] / nifty_s.iloc[-63]) - 1.0)
 
-    # 1. Compute daily market gain ranks across the 58-stock universe
+    # 1. Compute daily market gain ranks across the 100-stock universe
     daily_changes = []
     for _, ticker in STOCK_LIST.items():
         df = raw_map.get(ticker) if raw_map else None

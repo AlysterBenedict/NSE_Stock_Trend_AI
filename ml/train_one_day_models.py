@@ -1,4 +1,4 @@
-"""Global Cross-Sectional Panel 1-Day-Ahead Training Pipeline (58 NSE Stocks, 2005-Present).
+"""Global Cross-Sectional Panel 1-Day-Ahead Training Pipeline (100 NSE Stocks, 2005-Present).
 
 Usage:
     python ml/train_one_day_models.py
@@ -22,7 +22,7 @@ from ml.training_utils import (  # noqa: E402
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Train Global Cross-Sectional Panel 1-day-ahead SOTA models across all 58 NSE stocks."
+        description="Train Global Cross-Sectional Panel 1-day-ahead SOTA models across all 100 NSE stocks."
     )
     parser.add_argument(
         "--start-date",

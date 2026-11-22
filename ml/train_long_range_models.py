@@ -1,7 +1,7 @@
 """Global Cross-Sectional Panel Direct Multi-Horizon Training Pipeline (h = 5, 10, 21, 63d).
 
 Usage:
-    # Train all 4 multi-day horizons across all 58 NSE stocks (resumable):
+    # Train all 4 multi-day horizons across all 100 NSE stocks (resumable):
     python ml/train_long_range_models.py --resume
 
     # Or train specific horizons:

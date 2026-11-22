@@ -89,7 +89,7 @@ python -c "import torch; print('CUDA:', torch.cuda.is_available(), torch.cuda.ge
 ```
 
 ### 2. Retrain the Global Cross-Sectional Panel Models
-Trains unified multi-seed bagged **Global Cross-Sectional Panel** models across **all 58 NSE stocks (2005–present, ~150,000+ rows)** with 133 stationary + cross-sectional + lagged global macro features, OOF variance calibration, and shrinkage stacking:
+Trains unified multi-seed bagged **Global Cross-Sectional Panel** models across **all 100 NSE stocks (2005–present, ~400,000+ rows)** with stationary + cross-sectional + lagged global macro features, OOF variance calibration, and shrinkage stacking:
 ```powershell
 python ml/train_one_day_models.py
 python ml/train_long_range_models.py --resume
