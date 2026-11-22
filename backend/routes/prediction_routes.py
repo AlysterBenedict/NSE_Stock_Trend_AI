@@ -4,6 +4,7 @@ import traceback
 from flask import Blueprint, jsonify, request
 
 from backend.config import ALGORITHMS, STOCK_LIST
+from backend.services.backtest_service import run_strategy_backtest
 from backend.services.market_data_service import get_historical_chart_data
 from backend.services.prediction_service import (
     determine_next_business_day_for_ticker,
@@ -77,6 +78,30 @@ def historical_data_endpoint():
         if not chart_data:
             return jsonify({"error": f"Could not fetch data for {ticker}"}), 500
         return jsonify(chart_data)
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify({"error": str(exc)}), 500
+
+
+@prediction_bp.route("/run-backtest", methods=["POST"])
+def run_backtest_endpoint():
+    """Execute non-overlapping walk-forward strategy backtest with NSE cost assumptions."""
+    try:
+        content = request.json or {}
+        result, error_info = run_strategy_backtest(
+            strategy=content.get("strategy", "top_n_long"),
+            horizon=int(content.get("horizon", 21)),
+            algorithm=content.get("algorithm", "Ensemble"),
+            top_n=int(content.get("top_n", 10)),
+            cost_bps=float(content.get("cost_bps", 15.0)),
+            initial_capital=float(content.get("initial_capital", 100000.0)),
+            lookback_months=int(content.get("lookback_months", 24)),
+            stock_name=content.get("stock_name"),
+        )
+        if error_info:
+            msg, status_code = error_info
+            return jsonify({"error": msg}), status_code
+        return jsonify(result)
     except Exception as exc:
         traceback.print_exc()
         return jsonify({"error": str(exc)}), 500

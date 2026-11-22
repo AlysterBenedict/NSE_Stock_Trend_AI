@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createChart } from 'lightweight-charts';
 import { Badge, Callout, Card, CardHeader, Icon, Loader } from '../../components/common/ui';
 import { useTheme } from '../../context/ThemeContext';
+import { useWatchlist } from '../../context/WatchlistContext';
 import { getStockMarketDetail } from '../../services/apiClient';
 import { getChartColors, getLightChartOptions } from '../../utils/chartHelpers';
 import { formatPrice } from '../../utils/formatters';
@@ -36,6 +37,7 @@ const StockDetailsModal = ({ ticker, name, onBack }) => {
   const [loading, setLoading] = useState(true);
   const chartContainerRef = useRef();
   const { theme } = useTheme();
+  const { isWatched, toggleWatch } = useWatchlist();
 
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +136,7 @@ const StockDetailsModal = ({ ticker, name, onBack }) => {
   }
 
   const { info } = details;
+  const watched = isWatched(ticker) || isWatched(name);
   const spotPrice = info.currentPrice || info.regularMarketPrice;
   const low52 = Number(info.fiftyTwoWeekLow);
   const high52 = Number(info.fiftyTwoWeekHigh);
@@ -146,6 +149,14 @@ const StockDetailsModal = ({ ticker, name, onBack }) => {
         <button type="button" className="btn btn--secondary" onClick={onBack}>
           <Icon name="arrow_back" size={18} />
           Back to Market
+        </button>
+        <button
+          type="button"
+          className={`btn ${watched ? 'btn--primary' : 'btn--secondary'}`}
+          onClick={() => toggleWatch({ name, symbol: ticker })}
+        >
+          <Icon name="star" size={17} fill={watched} />
+          <span>{watched ? 'Watching' : 'Add to Watchlist'}</span>
         </button>
       </div>
 

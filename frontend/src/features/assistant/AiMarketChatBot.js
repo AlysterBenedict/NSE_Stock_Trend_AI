@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { Icon } from '../../components/common/ui';
 import { useChatSession } from './useChatSession';
 
-const SUGGESTIONS = [
+const DEFAULT_SUGGESTIONS = [
   'What is the current price of ',
   'Predict the stock price for ',
   'Should I invest in ',
@@ -12,10 +12,22 @@ const SUGGESTIONS = [
   'Analyze the trend for ',
 ];
 
-const AiMarketChatBot = ({ onGetInsights, stockName }) => {
+const AiMarketChatBot = ({ onGetInsights, stockName, activeContext = null }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const inputRef = useRef(null);
+
+  const focusedStock =
+    activeContext?.stockName || (stockName && stockName !== 'Market Assistant' ? stockName : '');
+
+  const suggestions = focusedStock
+    ? [
+        `Explain the AI forecast & key drivers for ${focusedStock}`,
+        `Bull vs bear case & volatility risk for ${focusedStock}`,
+        `Latest FinBERT news catalysts for ${focusedStock}`,
+        'Compare Infosys vs TCS',
+      ]
+    : DEFAULT_SUGGESTIONS;
 
   const {
     messages,
@@ -118,7 +130,7 @@ const AiMarketChatBot = ({ onGetInsights, stockName }) => {
           </div>
 
           <div className="assistant-panel__suggestions">
-            {SUGGESTIONS.map((s) => (
+            {suggestions.map((s) => (
               <button
                 key={s}
                 type="button"

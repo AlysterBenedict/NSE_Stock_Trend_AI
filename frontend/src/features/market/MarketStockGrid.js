@@ -1,6 +1,7 @@
 import React from 'react';
-import { ChangeBadge } from '../../components/common/ui';
+import { ChangeBadge, Icon } from '../../components/common/ui';
 import { SECTOR_MAP } from '../../constants/stocks';
+import { useWatchlist } from '../../context/WatchlistContext';
 import { formatPrice, formatSigned, toneOf } from '../../utils/formatters';
 
 /**
@@ -36,43 +37,69 @@ const IntradayTrace = ({ close, open, price, tone }) => {
   );
 };
 
-const MarketStockGrid = ({ data, onSelectStock }) => (
-  <div className="stock-grid">
-    {data.map((stock) => {
-      const tone = toneOf(stock.pChange);
-      const ticker = stock.symbol.split('.')[0];
-      const sector = SECTOR_MAP[stock.symbol];
+const MarketStockGrid = ({ data, onSelectStock }) => {
+  const { isWatched, toggleWatch } = useWatchlist();
 
-      return (
-        <button
-          key={stock.symbol}
-          type="button"
-          className="stock-card"
-          onClick={() => onSelectStock(stock)}
-        >
-          <div className="stock-card__top">
-            <div className="stock-card__identity">
-              <h3 className="stock-card__name">{stock.name}</h3>
-              <span className="stock-card__meta">
-                {ticker} · NSE{sector ? ` · ${sector}` : ''}
-              </span>
-            </div>
-            <ChangeBadge value={stock.pChange} />
-          </div>
+  return (
+    <div className="stock-grid">
+      {data.map((stock) => {
+        const tone = toneOf(stock.pChange);
+        const ticker = stock.symbol.split('.')[0];
+        const sector = SECTOR_MAP[stock.symbol];
+        const watched = isWatched(stock.symbol) || isWatched(stock.name);
 
-          <div className="stock-card__bottom">
-            <div className="stock-card__pricing">
-              <div className="stock-card__price">₹{formatPrice(stock.price)}</div>
-              <div className={`stock-card__delta stock-card__delta--${tone}`}>
-                {formatSigned(stock.change)} today
+        return (
+          <div
+            key={stock.symbol}
+            role="button"
+            tabIndex={0}
+            className="stock-card"
+            onClick={() => onSelectStock(stock)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onSelectStock(stock);
+              }
+            }}
+          >
+            <div className="stock-card__top">
+              <div className="stock-card__identity">
+                <h3 className="stock-card__name">{stock.name}</h3>
+                <span className="stock-card__meta">
+                  {ticker} · NSE{sector ? ` · ${sector}` : ''}
+                </span>
+              </div>
+              <div className="stock-card__top-actions">
+                <button
+                  type="button"
+                  className={`watch-star${watched ? ' is-watched' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleWatch(stock);
+                  }}
+                  aria-label={watched ? `Remove ${stock.name} from watchlist` : `Add ${stock.name} to watchlist`}
+                  title={watched ? 'Remove from watchlist' : 'Add to watchlist'}
+                >
+                  <Icon name="star" size={16} fill={watched} />
+                </button>
+                <ChangeBadge value={stock.pChange} />
               </div>
             </div>
-            <IntradayTrace close={stock.close} open={stock.open} price={stock.price} tone={tone} />
+
+            <div className="stock-card__bottom">
+              <div className="stock-card__pricing">
+                <div className="stock-card__price">₹{formatPrice(stock.price)}</div>
+                <div className={`stock-card__delta stock-card__delta--${tone}`}>
+                  {formatSigned(stock.change)} today
+                </div>
+              </div>
+              <IntradayTrace close={stock.close} open={stock.open} price={stock.price} tone={tone} />
+            </div>
           </div>
-        </button>
-      );
-    })}
-  </div>
-);
+        );
+      })}
+    </div>
+  );
+};
 
 export default MarketStockGrid;

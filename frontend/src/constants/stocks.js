@@ -103,6 +103,13 @@ export const PREDICTION_STOCK_OPTIONS = [
 
 export const SENTIMENT_STOCK_OPTIONS = PREDICTION_STOCK_OPTIONS;
 
+export const STOCK_SYMBOL_MAP = Object.fromEntries(
+  PREDICTION_STOCK_OPTIONS.map((opt) => {
+    const match = opt.label.match(/\(([^)]+)\)/);
+    return [opt.value, match ? match[1] : ''];
+  })
+);
+
 export const ALGORITHM_OPTIONS = [
   { value: 'Ensemble', label: 'Ensemble (Stacking AI — Recommended)' },
   { value: 'LightGBM', label: 'LightGBM' },

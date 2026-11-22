@@ -15,9 +15,16 @@ import {
 } from '../../components/common/ui';
 import { PREDICTION_STOCK_OPTIONS, PRINCIPAL_PRESETS } from '../../constants/stocks';
 import { useTheme } from '../../context/ThemeContext';
-import { calculatePortfolioProjection } from '../../services/apiClient';
+import {
+  calculatePortfolioProjection,
+  getAlphaRadar,
+  optimizePortfolio,
+} from '../../services/apiClient';
 import { getChartColors, getLightChartOptions } from '../../utils/chartHelpers';
-import { formatINR, isCancelledError } from '../../utils/formatters';
+import { exportPortfolioBrief } from '../../utils/exportResearchBrief';
+import { formatINR, formatSigned, isCancelledError } from '../../utils/formatters';
+import CorrelationHeatmap from './CorrelationHeatmap';
+import EfficientFrontierChart from './EfficientFrontierChart';
 
 const riskTone = (score) => {
   const s = (score || '').toLowerCase();
@@ -26,19 +33,48 @@ const riskTone = (score) => {
   return 'secondary';
 };
 
-const PortfolioReturnCalculator = () => {
+const OPT_MODES = [
+  { value: 'ai_bl', label: 'AI Max Sharpe' },
+  { value: 'min_var', label: 'Min Variance' },
+  { value: 'risk_parity', label: 'Risk Parity' },
+  { value: 'custom', label: 'Custom Sliders' },
+];
+
+const PortfolioReturnCalculator = ({ seedStocks = null }) => {
+  const [labMode, setLabMode] = useState(seedStocks?.length >= 2 ? 'multi' : 'single');
   const [stock, setStock] = useState('');
   const [principal, setPrincipal] = useState(10000);
   const [targetDate, setTargetDate] = useState('');
 
+  // Single-stock state
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+
+  // Multi-stock Optimizer state
+  const [basket, setBasket] = useState(
+    seedStocks?.length >= 2 ? seedStocks.slice(0, 10) : ['Infosys', 'HDFC Bank', 'Reliance', 'Sun Pharma', 'L&T']
+  );
+  const [basketPicker, setBasketPicker] = useState('');
+  const [optAlgoMode, setOptAlgoMode] = useState('ai_bl');
+  const [customSliders, setCustomSliders] = useState({});
+  const [optLoading, setOptLoading] = useState(false);
+  const [optResult, setOptResult] = useState(null);
+  const [optError, setOptError] = useState('');
+  const [loadingTopPicks, setLoadingTopPicks] = useState(false);
 
   const chartContainerRef = useRef(null);
   const abortControllerRef = useRef(null);
   const { theme } = useTheme();
   const colors = getChartColors(theme);
+
+  useEffect(() => {
+    if (seedStocks && seedStocks.length >= 2) {
+      setBasket(seedStocks.slice(0, 10));
+      setLabMode('multi');
+      setOptResult(null);
+    }
+  }, [seedStocks]);
 
   useEffect(() => () => abortControllerRef.current?.abort(), []);
 
@@ -94,8 +130,81 @@ const PortfolioReturnCalculator = () => {
     }
   };
 
+  const handleAddBasketStock = (selected) => {
+    setBasketPicker('');
+    if (!selected || basket.includes(selected) || basket.length >= 10) return;
+    setBasket((prev) => [...prev, selected]);
+  };
+
+  const handleRemoveBasketStock = (name) => {
+    setBasket((prev) => prev.filter((s) => s !== name));
+  };
+
+  const handleLoadTopAiPicks = async () => {
+    setLoadingTopPicks(true);
+    setOptError('');
+    try {
+      const radar = await getAlphaRadar(21, false);
+      const top5 = (radar?.stocks || []).slice(0, 5).map((s) => s.name);
+      if (top5.length >= 2) {
+        setBasket(top5);
+        setOptResult(null);
+      }
+    } catch (err) {
+      console.error('Could not load AI top picks:', err);
+      setOptError('Failed to fetch top AI alpha picks.');
+    } finally {
+      setLoadingTopPicks(false);
+    }
+  };
+
+  const handleOptimizePortfolio = async () => {
+    if (basket.length < 2 || principal <= 0 || !targetDate) {
+      setOptError('Select 2-10 stocks, positive principal, and a valid future date.');
+      return;
+    }
+
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    setOptError('');
+    setOptLoading(true);
+    setOptResult(null);
+
+    try {
+      const weightsArr =
+        optAlgoMode === 'custom'
+          ? basket.map((name) => Number(customSliders[name] ?? 20))
+          : null;
+
+      const data = await optimizePortfolio(
+        {
+          stocks: basket,
+          principal: parseFloat(principal),
+          future_date: targetDate,
+          mode: optAlgoMode,
+          custom_weights: weightsArr,
+        },
+        controller.signal
+      );
+      if (controller.signal.aborted) return;
+      setOptResult(data);
+    } catch (err) {
+      if (controller.signal.aborted || isCancelledError(err)) return;
+      console.error(err);
+      setOptError(err.response?.data?.error || 'Portfolio optimization failed.');
+    } finally {
+      if (abortControllerRef.current === controller) {
+        setOptLoading(false);
+      }
+    }
+  };
+
+  const activeChartResult = labMode === 'single' ? result : optResult;
+
   useEffect(() => {
-    if (!result || !chartContainerRef.current) return undefined;
+    if (!activeChartResult || !chartContainerRef.current) return undefined;
 
     const chart = createChart(
       chartContainerRef.current,
@@ -123,8 +232,8 @@ const PortfolioReturnCalculator = () => {
       title: 'Principal',
     });
 
-    if (result.chart_data) {
-      const areaData = result.chart_data.map((d) => ({ time: d.time, value: d.value }));
+    if (activeChartResult.chart_data) {
+      const areaData = activeChartResult.chart_data.map((d) => ({ time: d.time, value: d.value }));
       if (areaData.length > 0) {
         const numPrincipal = parseFloat(principal);
         const baselineData = areaData.map((d) => ({ time: d.time, value: numPrincipal }));
@@ -132,24 +241,24 @@ const PortfolioReturnCalculator = () => {
         baselineSeries.setData(baselineData);
       }
 
-      if (Array.isArray(result.p90_chart_data) && result.p90_chart_data.length > 0) {
+      if (Array.isArray(activeChartResult.p90_chart_data) && activeChartResult.p90_chart_data.length > 0) {
         const p90Series = chart.addLineSeries({
           color: colors.up,
           lineWidth: 1.5,
           lineStyle: LineStyle.Dashed,
           title: 'Optimistic (P90)',
         });
-        p90Series.setData(result.p90_chart_data);
+        p90Series.setData(activeChartResult.p90_chart_data);
       }
 
-      if (Array.isArray(result.p10_chart_data) && result.p10_chart_data.length > 0) {
+      if (Array.isArray(activeChartResult.p10_chart_data) && activeChartResult.p10_chart_data.length > 0) {
         const p10Series = chart.addLineSeries({
           color: colors.secondary,
           lineWidth: 1.5,
           lineStyle: LineStyle.Dashed,
           title: 'Conservative (P10)',
         });
-        p10Series.setData(result.p10_chart_data);
+        p10Series.setData(activeChartResult.p10_chart_data);
       }
 
       chart.timeScale().fitContent();
@@ -169,7 +278,7 @@ const PortfolioReturnCalculator = () => {
       window.removeEventListener('resize', handleResize);
       chart.remove();
     };
-  }, [result, principal, theme, colors]);
+  }, [activeChartResult, principal, theme, colors]);
 
   const pctVsPrincipal = (val) => {
     const p = parseFloat(principal);
@@ -180,10 +289,28 @@ const PortfolioReturnCalculator = () => {
   return (
     <div className="page-stack">
       <PageHeader
-        eyebrow="Stochastic Wealth Simulation"
+        eyebrow="Stochastic Wealth & Portfolio Optimization"
         icon="account_balance_wallet"
         title="AI Portfolio Projector"
-        description="10,000-path GARCH(1,1) Student-t Monte Carlo wealth simulation with P10/P50/P90 outcome cones, Sharpe ratio, and 95% Value at Risk."
+        description="Simulate 10,000 GARCH(1,1)-t paths on a single equity or optimize a correlated 2-10 NSE basket with Efficient Frontier & stress testing."
+        actions={
+          <div className="segmented" role="group" aria-label="Portfolio mode">
+            <button
+              type="button"
+              className={`segmented__btn${labMode === 'single' ? ' active' : ''}`}
+              onClick={() => setLabMode('single')}
+            >
+              Single-Stock Simulator
+            </button>
+            <button
+              type="button"
+              className={`segmented__btn${labMode === 'multi' ? ' active' : ''}`}
+              onClick={() => setLabMode('multi')}
+            >
+              Multi-Stock AI Optimizer
+            </button>
+          </div>
+        }
       />
 
       <div className="bento-grid">
@@ -192,19 +319,92 @@ const PortfolioReturnCalculator = () => {
             <CardHeader
               icon="tune"
               iconTone="primary"
-              title="Simulation Parameters"
-              subtitle="Configure asset, principal, and exit date"
+              title={labMode === 'single' ? 'Simulation Parameters' : 'Portfolio Basket & Engine'}
+              subtitle={labMode === 'single' ? 'Configure asset, principal, and exit date' : 'Optimize weights, frontier & correlated risk'}
             />
 
             <div className="form-stack">
-              <Field label="Core Equity" hint="NSE">
-                <SearchableSelect
-                  options={PREDICTION_STOCK_OPTIONS}
-                  onChange={setStock}
-                  placeholder="Select stock..."
-                  value={stock}
-                />
-              </Field>
+              {labMode === 'single' ? (
+                <Field label="Core Equity" hint="NSE">
+                  <SearchableSelect
+                    options={PREDICTION_STOCK_OPTIONS}
+                    onChange={setStock}
+                    placeholder="Select stock..."
+                    value={stock}
+                  />
+                </Field>
+              ) : (
+                <>
+                  <Field label="NSE Stock Basket (2–10)" hint={`${basket.length}/10 selected`}>
+                    <SearchableSelect
+                      options={PREDICTION_STOCK_OPTIONS.filter((o) => !basket.includes(o.value))}
+                      onChange={handleAddBasketStock}
+                      placeholder="Add equity to basket..."
+                      value={basketPicker}
+                    />
+                    <div className="basket-chips">
+                      {basket.map((nm) => (
+                        <span key={nm} className="basket-chip">
+                          <span>{nm}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveBasketStock(nm)}
+                            aria-label={`Remove ${nm}`}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn--secondary btn--sm"
+                      onClick={handleLoadTopAiPicks}
+                      disabled={loadingTopPicks}
+                    >
+                      {loadingTopPicks ? <Spinner size="sm" /> : <Icon name="auto_awesome" size={15} />}
+                      <span>Load Top 5 AI Alpha Picks</span>
+                    </button>
+                  </Field>
+
+                  <Field label="Optimization Engine">
+                    <div className="preset-row">
+                      {OPT_MODES.map((mOpt) => (
+                        <button
+                          key={mOpt.value}
+                          type="button"
+                          className={`preset-chip${optAlgoMode === mOpt.value ? ' active' : ''}`}
+                          onClick={() => setOptAlgoMode(mOpt.value)}
+                        >
+                          {mOpt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+
+                  {optAlgoMode === 'custom' && basket.length > 0 && (
+                    <Field label="Custom Allocation Sliders">
+                      <div className="custom-sliders">
+                        {basket.map((nm) => (
+                          <div key={nm} className="slider-row">
+                            <span>{nm}</span>
+                            <input
+                              type="range"
+                              min="5"
+                              max="100"
+                              value={Number(customSliders[nm] ?? 20)}
+                              onChange={(e) =>
+                                setCustomSliders((prev) => ({ ...prev, [nm]: Number(e.target.value) }))
+                              }
+                            />
+                            <strong>{Number(customSliders[nm] ?? 20)}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    </Field>
+                  )}
+                </>
+              )}
 
               <Field label="Principal Amount" hint="INR (₹)" htmlFor="portfolio-principal">
                 <div className="input-shell">
@@ -242,19 +442,31 @@ const PortfolioReturnCalculator = () => {
                 />
               </Field>
 
-              <button
-                type="button"
-                className="btn btn--primary btn--block"
-                onClick={handleCalculate}
-                disabled={loading || !stock}
-              >
-                {loading ? <Spinner size="sm" /> : <Icon name="trending_up" size={18} />}
-                <span>{loading ? 'Simulating 10,000 Paths...' : 'Project Growth'}</span>
-              </button>
+              {labMode === 'single' ? (
+                <button
+                  type="button"
+                  className="btn btn--primary btn--block"
+                  onClick={handleCalculate}
+                  disabled={loading || !stock}
+                >
+                  {loading ? <Spinner size="sm" /> : <Icon name="trending_up" size={18} />}
+                  <span>{loading ? 'Simulating 10,000 Paths...' : 'Project Growth'}</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn--primary btn--block"
+                  onClick={handleOptimizePortfolio}
+                  disabled={optLoading || basket.length < 2}
+                >
+                  {optLoading ? <Spinner size="sm" /> : <Icon name="auto_graph" size={18} />}
+                  <span>{optLoading ? 'Optimizing & Simulating...' : 'Optimize & Simulate'}</span>
+                </button>
+              )}
 
-              {error && (
+              {(labMode === 'single' ? error : optError) && (
                 <Callout tone="error" icon="error">
-                  {error}
+                  {labMode === 'single' ? error : optError}
                 </Callout>
               )}
             </div>
@@ -265,17 +477,20 @@ const PortfolioReturnCalculator = () => {
               <Icon name="calculate" size={18} />
             </span>
             <div>
-              <h4 className="note-card__title">Monte Carlo Calibration</h4>
+              <h4 className="note-card__title">
+                {labMode === 'single' ? 'Monte Carlo Calibration' : 'Cholesky-Correlated GARCH'}
+              </h4>
               <p className="note-card__copy">
-                Simulates 10,000 synthetic return trajectories using fat-tailed Student-t innovations to capture
-                volatility clustering and downside tail risk.
+                {labMode === 'single'
+                  ? 'Simulates 10,000 synthetic return trajectories using fat-tailed Student-t innovations to capture volatility clustering and downside tail risk.'
+                  : 'Combines Global Panel expected returns with Ledoit-Wolf shrinkage covariance and correlated Student-t simulations across every equity in your basket.'}
               </p>
             </div>
           </Card>
         </div>
 
         <div className="bento-main">
-          {!result ? (
+          {labMode === 'single' && !result && (
             <Card className="result-card--state">
               <EmptyState
                 icon="stacked_line_chart"
@@ -283,7 +498,19 @@ const PortfolioReturnCalculator = () => {
                 description="Select an NSE stock, principal capital, and target date on the left to generate a 10,000-path probabilistic portfolio forecast."
               />
             </Card>
-          ) : (
+          )}
+
+          {labMode === 'multi' && !optResult && (
+            <Card className="result-card--state">
+              <EmptyState
+                icon="donut_large"
+                title="Ready to Optimize Multi-Stock Basket"
+                description="Choose 2–10 NSE equities (or auto-load Top 5 AI Alpha Picks) and an optimization engine to compute Efficient Frontier weights, correlation heatmap, and stress scenarios."
+              />
+            </Card>
+          )}
+
+          {labMode === 'single' && result && (
             <div className="page-stack">
               <div className="kpi-grid kpi-grid--3">
                 <Card className="kpi-card">
@@ -399,6 +626,180 @@ const PortfolioReturnCalculator = () => {
                   </div>
                 </div>
               </Card>
+            </div>
+          )}
+
+          {labMode === 'multi' && optResult && (
+            <div className="page-stack">
+              <div className="kpi-grid kpi-grid--4">
+                <Card className="kpi-card">
+                  <div className="kpi-card__head">
+                    <span>Median Value (P50)</span>
+                    <Icon name="account_balance" size={18} className="kpi-card__icon kpi-card__icon--primary" />
+                  </div>
+                  <div className="kpi-card__value">{formatINR(optResult.final_value, 0)}</div>
+                  <div className="kpi-card__foot">
+                    <ChangeBadge value={optResult.roi} />
+                    <span>P(Profit): {optResult.probability_of_profit}%</span>
+                  </div>
+                </Card>
+
+                <Card className="kpi-card">
+                  <div className="kpi-card__head">
+                    <span>Expected CAGR</span>
+                    <Icon name="auto_graph" size={18} className="kpi-card__icon kpi-card__icon--secondary" />
+                  </div>
+                  <div className="kpi-card__value">{optResult.cagr}%</div>
+                  <div className="kpi-card__foot">
+                    <span>Sharpe {optResult.sharpe_ratio}</span>
+                    <span>Beta {optResult.portfolio_beta}</span>
+                  </div>
+                </Card>
+
+                <Card className="kpi-card">
+                  <div className="kpi-card__head">
+                    <span>Portfolio Risk</span>
+                    <Icon name="shield" size={18} className="kpi-card__icon kpi-card__icon--tertiary" />
+                  </div>
+                  <div className="kpi-card__value">{optResult.portfolio_vol_pct}%</div>
+                  <div className="kpi-card__foot">
+                    <span>Vol Saved: {optResult.diversification_benefit_pct}%</span>
+                  </div>
+                </Card>
+
+                <Card className="kpi-card">
+                  <div className="kpi-card__head">
+                    <span>95% VaR / CVaR</span>
+                    <Icon name="warning" size={18} className="kpi-card__icon kpi-card__icon--tertiary" />
+                  </div>
+                  <div className="kpi-card__value">{formatINR(optResult.var_95, 0)}</div>
+                  <div className="kpi-card__foot">
+                    <span>CVaR: {formatINR(optResult.cvar_95, 0)}</span>
+                  </div>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader
+                  icon="pie_chart"
+                  iconTone="primary"
+                  title="Optimal Capital Allocation &amp; Risk Budget"
+                  subtitle={`${optResult.allocations.length}-asset portfolio (${OPT_MODES.find((m) => m.value === optResult.mode)?.label || optResult.mode})`}
+                  actions={
+                    <div className="table-actions">
+                      <button
+                        type="button"
+                        className="btn btn--secondary btn--sm"
+                        onClick={() => exportPortfolioBrief(optResult, principal, targetDate, 'md')}
+                        title="Download Markdown Portfolio Brief"
+                      >
+                        <Icon name="download" size={14} />
+                        <span>.md Brief</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--secondary btn--sm"
+                        onClick={() => exportPortfolioBrief(optResult, principal, targetDate, 'pdf')}
+                        title="Print / Save PDF Portfolio Brief"
+                      >
+                        <Icon name="print" size={14} />
+                        <span>Print PDF</span>
+                      </button>
+                    </div>
+                  }
+                />
+                <div className="table-scroll">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Equity</th>
+                        <th>Sector</th>
+                        <th className="num">Weight</th>
+                        <th className="num">Allocated (₹)</th>
+                        <th className="num">Exp. Return</th>
+                        <th className="num">Ann. Vol</th>
+                        <th className="num">Risk Share</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {optResult.allocations.map((row) => (
+                        <tr key={row.ticker}>
+                          <td>
+                            <div className="table-symbol">
+                              <strong>{row.name}</strong>
+                              <span>{row.ticker.split('.')[0]}</span>
+                            </div>
+                          </td>
+                          <td>{row.sector}</td>
+                          <td className="num"><strong>{row.weight_pct}%</strong></td>
+                          <td className="num">{formatINR(row.allocated_inr, 0)}</td>
+                          <td className="num">
+                            <ChangeBadge value={row.expected_return_pct} />
+                          </td>
+                          <td className="num">{row.ann_vol_pct}%</td>
+                          <td className="num">{row.risk_contribution_pct}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+
+              <Card>
+                <CardHeader
+                  icon="show_chart"
+                  iconTone="primary"
+                  title="Correlated Monte Carlo Wealth Cone"
+                  subtitle={`${optResult.simulation_paths.toLocaleString('en-IN')} Cholesky GARCH(1,1)-t paths`}
+                />
+                <div className="chart-well">
+                  <div ref={chartContainerRef} className="chart-canvas" style={{ height: 340 }} />
+                </div>
+              </Card>
+
+              <div className="grid-2">
+                <Card>
+                  <CardHeader
+                    icon="scatter_plot"
+                    iconTone="primary"
+                    title="Markowitz Efficient Frontier"
+                    subtitle="AI Max Sharpe vs Min-Variance & Equal Weight"
+                  />
+                  <EfficientFrontierChart frontier={optResult.efficient_frontier} />
+                </Card>
+
+                <Card>
+                  <CardHeader
+                    icon="grid_on"
+                    iconTone="secondary"
+                    title="Pairwise Correlation Matrix"
+                    subtitle="Flagging overlapping sector risk (>= 0.70)"
+                  />
+                  <CorrelationHeatmap matrix={optResult.correlation_matrix} />
+                </Card>
+              </div>
+
+              {optResult.stress_tests?.length > 0 && (
+                <Card>
+                  <CardHeader
+                    icon="bolt"
+                    iconTone="tertiary"
+                    title="Macro &amp; Historical Crisis Stress Replay"
+                    subtitle="Estimated basket impact under historical drawdowns and market shocks"
+                  />
+                  <div className="stress-grid">
+                    {optResult.stress_tests.map((st) => (
+                      <div key={st.scenario} className="stress-tile">
+                        <span className="stress-tile__label">{st.scenario}</span>
+                        <div className="stress-tile__row">
+                          <span className="stress-tile__impact is-down">{formatSigned(st.impact_pct)}%</span>
+                          <span className="stress-tile__val">{formatINR(st.projected_value, 0)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
             </div>
           )}
         </div>

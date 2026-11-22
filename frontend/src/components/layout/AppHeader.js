@@ -12,7 +12,16 @@ function getNseSession(now = new Date()) {
   return { open, time };
 }
 
-const AppHeader = ({ user, onLogout, tabGroups = [], activeTab, onTabChange }) => {
+const AppHeader = ({
+  user,
+  onLogout,
+  tabGroups = [],
+  activeTab,
+  onTabChange,
+  onOpenCommandPalette,
+  onOpenWatchlist,
+  watchlistCount = 0,
+}) => {
   const [session, setSession] = useState(getNseSession());
   const { isDark, toggleTheme } = useTheme();
 
@@ -55,15 +64,41 @@ const AppHeader = ({ user, onLogout, tabGroups = [], activeTab, onTabChange }) =
           </button>
 
           {user && (
-            <div className="user-chip">
-              <span className="user-chip__avatar">{initial}</span>
-              <span className="user-chip__email" title={user.email}>
-                {user.email || 'User'}
-              </span>
-              <button type="button" className="icon-btn" onClick={onLogout} title="Log out" aria-label="Log out">
-                <Icon name="logout" size={18} />
+            <>
+              <button
+                type="button"
+                className="header-pill-btn"
+                onClick={onOpenCommandPalette}
+                aria-label="Open command search (Ctrl+K)"
+                title="Quick Search (Ctrl+K)"
+              >
+                <Icon name="search" size={16} />
+                <span className="header-pill-btn__label">Search</span>
+                <kbd className="header-pill-btn__kbd">Ctrl+K</kbd>
               </button>
-            </div>
+
+              <button
+                type="button"
+                className="header-pill-btn"
+                onClick={onOpenWatchlist}
+                aria-label="Open watchlist"
+                title="Watchlist & Price Alerts"
+              >
+                <Icon name="star" size={16} fill={watchlistCount > 0} />
+                <span className="header-pill-btn__label">Watchlist</span>
+                {watchlistCount > 0 && <span className="header-pill-btn__count">{watchlistCount}</span>}
+              </button>
+
+              <div className="user-chip">
+                <span className="user-chip__avatar">{initial}</span>
+                <span className="user-chip__email" title={user.email}>
+                  {user.email || 'User'}
+                </span>
+                <button type="button" className="icon-btn" onClick={onLogout} title="Log out" aria-label="Log out">
+                  <Icon name="logout" size={18} />
+                </button>
+              </div>
+            </>
           )}
         </div>
       </div>

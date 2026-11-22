@@ -1,6 +1,8 @@
 import React from 'react';
 import { Badge, Callout, Card, ChangeBadge, EmptyState, Icon, Loader } from '../../components/common/ui';
+import { exportPredictionBrief } from '../../utils/exportResearchBrief';
 import { formatPrice, formatSigned } from '../../utils/formatters';
+import ForecastXRayPanel from './ForecastXRayPanel';
 import PredictionTrendChart from './PredictionTrendChart';
 
 const PredictionResultCard = ({ result, error, isLoading = false, slotLabel = null }) => {
@@ -75,9 +77,29 @@ const PredictionResultCard = ({ result, error, isLoading = false, slotLabel = nu
           <h3 className="result-card__type">{predictionType}</h3>
         </div>
 
-        <Badge tone="neutral" icon="calendar_today">
-          Target {futureDate}
-        </Badge>
+        <div className="result-card__actions">
+          <Badge tone="neutral" icon="calendar_today">
+            Target {futureDate}
+          </Badge>
+          <button
+            type="button"
+            className="btn btn--secondary btn--sm"
+            onClick={() => exportPredictionBrief(result, 'md')}
+            title="Download Markdown Research Brief"
+          >
+            <Icon name="download" size={14} />
+            <span>.md Brief</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn--secondary btn--sm"
+            onClick={() => exportPredictionBrief(result, 'pdf')}
+            title="Print / Save PDF Research Brief"
+          >
+            <Icon name="print" size={14} />
+            <span>Print PDF</span>
+          </button>
+        </div>
       </div>
 
       {warning && (
@@ -159,6 +181,8 @@ const PredictionResultCard = ({ result, error, isLoading = false, slotLabel = nu
         trendData={trendData}
         predictedPrice={predictedPrice}
       />
+
+      <ForecastXRayPanel explainability={result.explainability} />
     </Card>
   );
 };

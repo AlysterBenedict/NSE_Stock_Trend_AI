@@ -1474,6 +1474,23 @@ def train_global_panel_for_horizon(panel_base, horizon, models_dir, prefix, devi
     test_pred_ret["Ensemble"] = dev_market_drift_ret + ens_z_test * test_vol_scale
     global_metrics["Ensemble"] = evaluate_panel_predictions(df_test, test_pred_ret["Ensemble"], horizon=horizon)
 
+    # Persist lightweight out-of-sample holdout replay frame for Backtest Lab
+    try:
+        replay_df = pd.DataFrame(
+            {
+                "date": pd.to_datetime(df_test["date"].values),
+                "ticker": df_test["ticker"].values,
+                "Close": df_test["Close"].values.astype(np.float32),
+                "fwd_ret": df_test["fwd_ret"].values.astype(np.float32),
+            }
+        )
+        for algo_name, pred_arr in test_pred_ret.items():
+            replay_df[f"pred_{algo_name}"] = np.asarray(pred_arr, dtype=np.float32)
+        replay_path = os.path.join(os.path.dirname(METRICS_SUMMARY_PATH), f"holdout_eval_{horizon_key}.joblib")
+        joblib.dump(replay_df, replay_path, compress=3)
+    except Exception as exc:
+        print(f"Warning: could not persist holdout replay frame for {horizon_key}: {exc}")
+
     print(f"\n>>> UNSEEN 20% HOLDOUT GLOBAL PANEL BENCHMARK ({horizon_key}) <<<")
     print(
         f"  {'Algorithm':<14} {'DirAcc%':>8} {'MAPE%':>7} {'Skill%':>8} "

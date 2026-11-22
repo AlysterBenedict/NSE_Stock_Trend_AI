@@ -1,7 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
+import CommandPalette from './components/common/CommandPalette';
+import WatchlistDrawer from './components/common/WatchlistDrawer';
 import { Icon, Loader } from './components/common/ui';
 import AppFooter from './components/layout/AppFooter';
 import AppHeader from './components/layout/AppHeader';
+import { useTheme } from './context/ThemeContext';
+import { WatchlistProvider, useWatchlist } from './context/WatchlistContext';
 import AiMarketChatBot from './features/assistant/AiMarketChatBot';
 import FinancialEducationTutor from './features/assistant/FinancialEducationTutor';
 import LoginPage from './features/auth/LoginPage';
@@ -9,7 +13,9 @@ import SignupPage from './features/auth/SignupPage';
 import AiInvestmentEngine from './features/investment/AiInvestmentEngine';
 import PortfolioReturnCalculator from './features/investment/PortfolioReturnCalculator';
 import MarketOverviewDashboard from './features/market/MarketOverviewDashboard';
+import AlphaRadarDashboard from './features/market/AlphaRadarDashboard';
 import OpenPositionsDashboard from './features/market/OpenPositionsDashboard';
+import BacktestLabDashboard from './features/prediction/BacktestLabDashboard';
 import FiftyTwoWeekDashboard from './features/prediction/FiftyTwoWeekDashboard';
 import ModelComparisonDashboard from './features/prediction/ModelComparisonDashboard';
 import PredictionDashboard from './features/prediction/PredictionDashboard';
@@ -24,6 +30,7 @@ const TAB_GROUPS = [
     label: 'Markets',
     tabs: [
       { id: 'market', label: 'Market', icon: 'storefront' },
+      { id: 'alphaRadar', label: 'Alpha Radar', icon: 'radar' },
       { id: 'positions', label: 'Positions', icon: 'leaderboard' },
       { id: 'sentiment', label: 'Sentiment', icon: 'newspaper' },
     ],
@@ -34,6 +41,7 @@ const TAB_GROUPS = [
       { id: 'home', label: 'Prediction', icon: 'query_stats' },
       { id: 'comparison', label: 'Comparison', icon: 'compare_arrows' },
       { id: 'fiftyTwoWeek', label: '52 Week', icon: 'candlestick_chart' },
+      { id: 'backtest', label: 'Backtest Lab', icon: 'science' },
     ],
   },
   {
@@ -49,25 +57,30 @@ const TAB_GROUPS = [
   },
 ];
 
-function App() {
+function AppWorkspace({ user, authLoading }) {
+  const { items: watchlistItems } = useWatchlist();
+  const { isDark, toggleTheme } = useTheme();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [predictionResult, setPredictionResult] = useState({});
-  const [user, setUser] = useState(null);
   const [authForm, setAuthForm] = useState('login');
-  const [authLoading, setAuthLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('market');
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const [watchlistOpen, setWatchlistOpen] = useState(false);
   const [tabResetKeys, setTabResetKeys] = useState({
     market: 0,
+    alphaRadar: 0,
     positions: 0,
     sentiment: 0,
     home: 0,
     comparison: 0,
     fiftyTwoWeek: 0,
+    backtest: 0,
     investment: 0,
     portfolio: 0,
     education: 0,
   });
+  const [optimizerSeedStocks, setOptimizerSeedStocks] = useState(null);
 
   // Single prediction state
   const [stock, setStock] = useState('');
@@ -90,18 +103,24 @@ function App() {
   const compAbortRef = useRef(null);
 
   useEffect(() => {
-    setAuthLoading(true);
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setAuthLoading(false);
-      if (currentUser) {
-        setPredictionResult({});
-        setError(null);
-        setAuthForm('login');
+    if (user) {
+      setPredictionResult({});
+      setError(null);
+      setAuthForm('login');
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+    const handleGlobalShortcut = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCmdOpen((prev) => !prev);
       }
-    });
-    return () => unsubscribe();
-  }, []);
+    };
+    window.addEventListener('keydown', handleGlobalShortcut);
+    return () => window.removeEventListener('keydown', handleGlobalShortcut);
+  }, [user]);
 
   const handleLogout = async () => {
     try {
@@ -182,19 +201,52 @@ function App() {
     }
   };
 
+  const activeContextStock =
+    (activeTab === 'home'
+      ? stock
+      : activeTab === 'comparison'
+      ? compStock
+      : activeTab === 'fiftyTwoWeek'
+      ? fiftyTwoWeekStock
+      : '') || '';
+
+  const activeForecastSummary =
+    activeTab === 'home' && predictionResult?.predicted_price
+      ? `${predictionResult.stock_name} (${predictionResult.algorithm_name}): INR ${predictionResult.predicted_price} by ${predictionResult.future_date}`
+      : null;
+
   const handleGetAiInsights = async (userQuestion, signal) => {
     const targetResult =
       activeTab === 'comparison' && compResult1.trend_data ? compResult1 : predictionResult;
     const data = await getAiInsights(
       {
-        stock_name: targetResult?.stock_name || null,
+        stock_name: targetResult?.stock_name || activeContextStock || null,
         trend_data: targetResult?.trend_data || null,
         user_question: userQuestion,
+        active_context: {
+          tab: activeTab,
+          stock_name: activeContextStock || targetResult?.stock_name || null,
+          forecastSummary: activeForecastSummary,
+        },
       },
       signal
     );
     if (!data.insights) throw new Error('No insights returned');
     return data.insights;
+  };
+
+  const handleJumpToForecast = (selectedStock) => {
+    if (!selectedStock) return;
+    setStock(selectedStock);
+    setPredictionResult({});
+    setError(null);
+    setActiveTab('home');
+  };
+
+  const handleAddToOptimizer = (stocksList) => {
+    if (!Array.isArray(stocksList) || stocksList.length < 2) return;
+    setOptimizerSeedStocks(stocksList);
+    setActiveTab('portfolio');
   };
 
   const handleResetCurrentTab = () => {
@@ -256,6 +308,9 @@ function App() {
         tabGroups={TAB_GROUPS}
         activeTab={activeTab}
         onTabChange={setActiveTab}
+        onOpenCommandPalette={() => setCmdOpen(true)}
+        onOpenWatchlist={() => setWatchlistOpen(true)}
+        watchlistCount={watchlistItems.length}
       />
 
       {!user ? (
@@ -283,6 +338,13 @@ function App() {
 
           <div key={`market-${tabResetKeys.market}`} style={{ display: activeTab === 'market' ? 'block' : 'none', width: '100%' }}>
             <MarketOverviewDashboard />
+          </div>
+
+          <div key={`alphaRadar-${tabResetKeys.alphaRadar}`} style={{ display: activeTab === 'alphaRadar' ? 'block' : 'none', width: '100%' }}>
+            <AlphaRadarDashboard
+              onJumpToForecast={handleJumpToForecast}
+              onAddToOptimizer={handleAddToOptimizer}
+            />
           </div>
 
           <div key={`positions-${tabResetKeys.positions}`} style={{ display: activeTab === 'positions' ? 'block' : 'none', width: '100%' }}>
@@ -326,12 +388,16 @@ function App() {
             <FiftyTwoWeekDashboard stock={fiftyTwoWeekStock} setStock={setFiftyTwoWeekStock} />
           </div>
 
+          <div key={`backtest-${tabResetKeys.backtest}`} style={{ display: activeTab === 'backtest' ? 'block' : 'none', width: '100%' }}>
+            <BacktestLabDashboard />
+          </div>
+
           <div key={`investment-${tabResetKeys.investment}`} style={{ display: activeTab === 'investment' ? 'block' : 'none', width: '100%' }}>
             <AiInvestmentEngine />
           </div>
 
           <div key={`portfolio-${tabResetKeys.portfolio}`} style={{ display: activeTab === 'portfolio' ? 'block' : 'none', width: '100%' }}>
-            <PortfolioReturnCalculator />
+            <PortfolioReturnCalculator seedStocks={optimizerSeedStocks} />
           </div>
 
           <div key={`sentiment-${tabResetKeys.sentiment}`} style={{ display: activeTab === 'sentiment' ? 'block' : 'none', width: '100%' }}>
@@ -349,12 +415,55 @@ function App() {
       {user && activeTab !== 'education' && (
         <AiMarketChatBot
           onGetInsights={handleGetAiInsights}
-          stockName={
-            (activeTab === 'home' ? stock : activeTab === 'comparison' ? compStock : '') || 'Market Assistant'
-          }
+          stockName={activeContextStock || 'Market Assistant'}
+          activeContext={{
+            tab: activeTab,
+            stockName: activeContextStock,
+            forecastSummary: activeForecastSummary,
+          }}
         />
       )}
+
+      {user && (
+        <>
+          <CommandPalette
+            isOpen={cmdOpen}
+            onClose={() => setCmdOpen(false)}
+            tabGroups={TAB_GROUPS}
+            onSelectTab={setActiveTab}
+            onSelectStockForecast={handleJumpToForecast}
+            onToggleTheme={toggleTheme}
+            onOpenWatchlist={() => setWatchlistOpen(true)}
+            isDark={isDark}
+          />
+          <WatchlistDrawer
+            isOpen={watchlistOpen}
+            onClose={() => setWatchlistOpen(false)}
+            onJumpToForecast={handleJumpToForecast}
+          />
+        </>
+      )}
     </div>
+  );
+}
+
+function App() {
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    setAuthLoading(true);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  return (
+    <WatchlistProvider userKey={user?.uid || user?.email || 'guest'}>
+      <AppWorkspace user={user} authLoading={authLoading} />
+    </WatchlistProvider>
   );
 }
 

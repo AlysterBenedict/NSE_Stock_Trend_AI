@@ -33,13 +33,15 @@ def get_ai_insights_endpoint():
     stock_name = content.get("stock_name")
     trend_data = content.get("trend_data")
     user_question = content.get("user_question")
+    active_context = content.get("active_context")
 
-    if not user_question and not stock_name:
+    if not user_question and not stock_name and not active_context:
         return jsonify({"error": "Missing user_question or stock context"}), 400
 
     insights, status_code = generate_ai_insights(
         stock_name=stock_name,
         trend_data=trend_data,
         user_question=user_question,
+        active_context=active_context,
     )
     return jsonify({"insights": insights}), status_code

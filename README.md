@@ -1,9 +1,9 @@
 # NeuroStock — NSE Stock Trend Predictor AI
 
-## 📌 Project Overview
+##  Project Overview
 **NeuroStock (NSE Stock Trend Predictor AI)** is a full-stack quantitative forecasting and financial analysis platform for National Stock Exchange (NSE) listed equities. It pairs a **GPU-accelerated State-of-the-Art ML Stack** (stationary log-return GBDTs + PyTorch TCN-BiGRU-Attention + Out-of-Fold Stacking Ensemble + Direct Multi-Horizon Quantile Forecasting + GARCH(1,1) Student-t Monte Carlo + FinBERT sentiment) with a **Local LLM** via LM Studio for conversational market insights and financial education.
 
-## 🚀 Key Features
+##  Key Features
 
 * **1-Day Stationary Log-Return Forecast**: Predicts next-day log returns from **133 stationary & cross-sectional alpha features** (multi-horizon returns, candlestick microstructure, EMA/MACD/RSI/ADX/Stochastic, Garman-Klass & ATR volatility, MFI/OBV/VWAP flow, Nifty 50 `^NSEI` & India VIX `^INDIAVIX` macro regime context, lagged global cross-asset drivers, cross-sectional percentile ranks, and cyclical calendar encodings) — eliminating raw-price non-stationarity and tree extrapolation failure.
 * **Direct Multi-Horizon Forecasting + 90% Confidence Cones**: Trains direct models across horizons $h \in \{1, 5, 10, 21, 63\}$ trading days with LightGBM quantile regression (`q10`, `q50`, `q90`) and Bayesian-shrunk equilibrium drift beyond 63 days — eliminating recursive walk-forward drift explosion.
@@ -16,7 +16,7 @@
 * **FinBERT News Sentiment Analysis**: Local `ProsusAI/finbert` financial transformer scoring up to 12 articles with exponential recency decay, plus optional LM Studio executive synthesis.
 * **AI Market Assistant & Financial Tutor**: Conversational `TrendAI` market analyst and `FinTeach` educator powered by LM Studio.
 
-## 🛠️ Tech Stack
+##  Tech Stack
 
 ### Backend & ML
 * **Language**: Python 3.10+ (CUDA-enabled Conda environment recommended for NVIDIA GPUs)
@@ -32,7 +32,7 @@
 * **Authentication**: Firebase SDK
 * **Testing**: Jest, React Testing Library
 
-## 📂 Project Structure
+##  Project Structure
 
 ```
 Stock_Predictor/
@@ -72,7 +72,7 @@ Stock_Predictor/
 └── README.md
 ```
 
-## ⚙️ Installation & Manual Retraining (NVIDIA GPU / Conda)
+##  Installation & Manual Retraining (NVIDIA GPU / Conda)
 
 ### 1. Activate Your Conda Environment & Install GPU Dependencies
 Install **PyTorch with CUDA** first so `AttentionNet` and `FinBERT` run natively on your NVIDIA GPU on Windows, then install the remaining packages:
@@ -88,7 +88,7 @@ Verify GPU detection:
 python -c "import torch; print('CUDA:', torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
 ```
 
-### 2. Retrain the Global Cross-Sectional Panel Models
+### 2. Retrain the Global Cross-Sectional Panel Models if required
 Trains unified multi-seed bagged **Global Cross-Sectional Panel** models across **all 100 NSE stocks (2005–present, ~400,000+ rows)** with stationary + cross-sectional + lagged global macro features, OOF variance calibration, and shrinkage stacking:
 ```powershell
 python ml/train_one_day_models.py
@@ -102,7 +102,7 @@ cd "c:\Users\bened\Documents\Alyster Coding\PROJECTS\Stock_Predictor\frontend"
 npm install
 ```
 
-## 🏃‍♂️ Running the Application
+##  Running the Application
 
 **Terminal 1 — Backend:**
 ```powershell
@@ -117,5 +117,5 @@ cd "c:\Users\bened\Documents\Alyster Coding\PROJECTS\Stock_Predictor\frontend"
 npm start
 ```
 
-## ⚠️ Disclaimer
+##  Disclaimer
 This tool is for **educational and research purposes only**. Financial markets are inherently stochastic and forecasts do not guarantee future returns. Do not use this application for real financial trading.
