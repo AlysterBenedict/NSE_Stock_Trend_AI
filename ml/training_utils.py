@@ -69,25 +69,48 @@ def configure_training_environment(models_dir):
 
 
 def parallel_download_universe(stock_map, start_date=START_DATE, max_workers=10):
-    """Download 20+ years of daily OHLCV for all NSE stocks concurrently."""
+    """Download 20+ years of daily OHLCV safely for all NSE stocks using bulk download + sequential retry."""
     end_date = datetime.now().strftime("%Y-%m-%d")
+    tickers = sorted(set(stock_map.values()))
     results = {}
 
-    def _download_one(item):
-        name, ticker = item
-        try:
-            df = yf.download(ticker, start=start_date, end=end_date, progress=False)
-            if df is not None and not df.empty:
-                return ticker, df
-        except Exception as exc:
-            print(f"Warning: failed to download {name} ({ticker}): {exc}")
-        return ticker, None
-
     print(f"Downloading full OHLCV history ({start_date} -> {end_date}) for {len(stock_map)} NSE stocks...")
-    with ThreadPoolExecutor(max_workers=min(max_workers, max(1, len(stock_map)))) as executor:
-        for ticker, df in executor.map(_download_one, stock_map.items()):
-            if df is not None:
-                results[ticker] = df
+    try:
+        bulk = yf.download(
+            tickers,
+            start=start_date,
+            end=end_date,
+            group_by="ticker",
+            threads=True,
+            progress=False,
+        )
+        if bulk is not None and not bulk.empty:
+            if isinstance(bulk.columns, pd.MultiIndex):
+                lvl0 = set(bulk.columns.get_level_values(0))
+                for t in tickers:
+                    if t in lvl0:
+                        sub = bulk[t].dropna(how="all")
+                        if not sub.empty:
+                            results[t] = sub
+            elif len(tickers) == 1:
+                sub = bulk.dropna(how="all")
+                if not sub.empty:
+                    results[tickers[0]] = sub
+    except Exception as exc:
+        print(f"Warning: bulk download encountered an error ({exc}); falling back to per-ticker fetch.")
+
+    # Sequentially retry any missing tickers using isolated yf.Ticker().history (zero yf.shared race)
+    missing = [(name, t) for name, t in stock_map.items() if t not in results]
+    for name, ticker in missing:
+        for attempt in range(2):
+            try:
+                df = yf.Ticker(ticker).history(start=start_date, end=end_date, auto_adjust=True)
+                if df is not None and not df.empty:
+                    results[ticker] = df
+                    break
+            except Exception as exc:
+                if attempt == 1:
+                    print(f"Warning: failed to download {name} ({ticker}): {exc}")
 
     print(f"Downloaded {len(results)}/{len(stock_map)} stocks successfully.")
     return results
