@@ -3,7 +3,7 @@
 **Author:** Alyster Benedict
 
 ## Project Overview
-**NeuroStock (NSE Stock Trend Predictor AI)** is a full-stack quantitative forecasting and financial analysis platform for National Stock Exchange (NSE) listed equities. It pairs an **asynchronous FastAPI/Uvicorn backend** running a **GPU-accelerated ML Stack** (stationary log-return GBDTs + PyTorch TCN-BiGRU-Attention + Out-of-Fold Stacking Ensemble + Direct Multi-Horizon Quantile Forecasting + GARCH(1,1) Student-t Monte Carlo + FinBERT sentiment) with a **Local LLM** via LM Studio for conversational market insights and financial education.
+**NeuroStock (NSE Stock Trend Predictor AI)** is a full-stack quantitative forecasting and financial analysis platform for National Stock Exchange (NSE) listed equities. It pairs an **asynchronous FastAPI/Uvicorn backend** running a **GPU-accelerated ML Stack** (stationary log-return GBDTs + PyTorch TCN-BiGRU-Attention + Out-of-Fold Stacking Ensemble + Direct Multi-Horizon Quantile Forecasting + GARCH(1,1) Student-t Monte Carlo + FinBERT sentiment) with **hybrid LLM routing** — querying **Local LLM (LM Studio)** first and automatically failing over to **NVIDIA NIM (`nvidia/nemotron-3-ultra-550b-a55b`)** when local inference is unavailable.
 
 ## Key Features
 
@@ -15,7 +15,7 @@
   * **GBDT & Classical Suite**: `LightGBM`, `CatBoost`, `XGBoost`, `RandomForest`, `SVR`, and `Ridge`.
 * **NSE 100 Alpha Radar & Walk-Forward Backtest Lab**: Vectorized cross-sectional scoring across 100 NSE equities, Sector Rotation Quadrant, Macro Regime indicator, and walk-forward strategy simulator with realistic NSE cost assumptions.
 * **Institutional Portfolio Projector & Multi-Stock Optimizer**: Cholesky-correlated **GARCH(1,1) Student-t Monte Carlo** simulation with Black-Litterman / Min-Variance / Risk-Parity optimization, Efficient Frontier, correlation matrix, and historical stress tests.
-* **FinBERT News Sentiment & TrendAI Assistant**: Local `ProsusAI/finbert` financial transformer scoring recent headlines with recency decay, plus `TrendAI` and `FinTeach` powered by LM Studio.
+* **FinBERT News Sentiment & TrendAI Assistant**: Local `ProsusAI/finbert` financial transformer scoring recent headlines with recency decay, plus `TrendAI` and `FinTeach` powered by **Local LLM** (LM Studio) with automatic NVIDIA NIM (`Nemotron 550B`) fallback using per-account AES-256-GCM encrypted API keys.
 
 ## Security & Concurrency Architecture
 
@@ -52,6 +52,7 @@ Stock_Predictor/
 │   ├── security/                                 # Auth, integrity, sanitizers, logging & ASGI middleware
 │   │   ├── auth.py                               # Stateless Firebase RS256 JWT verification
 │   │   ├── integrity.py                          # SHA-256 model manifest & path containment verifier
+│   │   ├── key_vault.py                          # Per-user AES-256-GCM + HKDF-SHA256 encrypted API key vault
 │   │   ├── logging_utils.py                      # Structured logging & CRLF log sanitization
 │   │   ├── middleware.py                         # Security headers, body size cap & sliding-window rate limiter
 │   │   └── sanitizers.py                         # Ticker, URL, SSRF & prompt-injection sanitizers

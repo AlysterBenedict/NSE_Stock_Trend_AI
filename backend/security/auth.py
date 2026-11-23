@@ -1,6 +1,7 @@
 """Stateless Firebase ID Token (RS256 JWT) verification with zero private keys on disk."""
 
 import asyncio
+from contextvars import ContextVar
 import re
 import time
 from typing import Any, Awaitable, Callable
@@ -22,6 +23,8 @@ FIREBASE_CERTS_URL = (
 )
 _CACHE_CONTROL_MAX_AGE_RE = re.compile(r"max-age=(\d+)", re.IGNORECASE)
 _BEARER_RE = re.compile(r"^Bearer\s+([^\s]+)$", re.IGNORECASE)
+_SAFE_SUB_RE = re.compile(r"^[A-Za-z0-9_.:@-]{1,128}$")
+current_user_id_ctx: ContextVar[str] = ContextVar("current_user_id", default="dev-local")
 
 
 def _parse_max_age(headers: httpx.Headers | dict[str, str], default: int = 1800) -> int:
@@ -177,8 +180,23 @@ token_verifier = FirebaseTokenVerifier(http_client_getter=_get_runtime_http_clie
 async def require_auth(request: Request) -> dict[str, Any]:
     """FastAPI dependency enforcing stateless Firebase RS256 Bearer authentication."""
     if not is_auth_required():
-        request.state.user_id = "dev-local"
-        return {"uid": "dev-local", "sub": "dev-local", "auth_bypass": True}
+        resolved_sub = "dev-local"
+        auth_header = request.headers.get("authorization", "")
+        match = _BEARER_RE.match(auth_header.strip())
+        if match:
+            try:
+                unverified = jwt.decode(
+                    match.group(1),
+                    options={"verify_signature": False, "verify_exp": False},
+                )
+                candidate = unverified.get("sub") or unverified.get("user_id")
+                if isinstance(candidate, str) and _SAFE_SUB_RE.fullmatch(candidate.strip()):
+                    resolved_sub = candidate.strip()
+            except Exception:
+                resolved_sub = "dev-local"
+        request.state.user_id = resolved_sub
+        current_user_id_ctx.set(resolved_sub)
+        return {"uid": resolved_sub, "sub": resolved_sub, "auth_bypass": True}
 
     project_id = get_firebase_project_id()
     if not project_id:
@@ -214,4 +232,5 @@ async def require_auth(request: Request) -> dict[str, Any]:
         ) from exc
 
     request.state.user_id = claims["sub"]
+    current_user_id_ctx.set(claims["sub"])
     return claims

@@ -88,8 +88,8 @@ def create_detailed_technical_document():
         ("Backend API", "FastAPI + Uvicorn (Async ASGI, Pydantic v2, ORJSON)"),
         ("Authentication", "Firebase Auth + Stateless RS256 JWT Verification"),
         ("ML Stack", "PyTorch (TemporalAttentionNet), LightGBM, CatBoost, XGBoost, Scikit-Learn"),
-        ("NLP & LLM", "ProsusAI/finbert + Local LM Studio via pooled HTTPX"),
-        ("Artifact Security", "SHA-256 manifest verification + weights_only=True"),
+        ("NLP & LLM", "ProsusAI/finbert + Local LLM (LM Studio) -> NVIDIA NIM (Nemotron 550B) via pooled HTTPX"),
+        ("Artifact Security", "SHA-256 manifest verification + weights_only=True + AES-256-GCM per-user key vault"),
     ]
     for comp, tech in specs:
         row_cells = table.add_row().cells
@@ -136,6 +136,7 @@ def create_detailed_technical_document():
         ("POST", "/get-sentiment", "FinBERT recency-weighted news sentiment scoring."),
         ("POST", "/get-ai-insights", "TrendAI contextual quantitative & news Q&A."),
         ("POST", "/get-general-knowledge", "FinTeach financial literacy tutor."),
+        ("GET/POST/DELETE", "/llm-settings", "Per-user encrypted NVIDIA API key configuration & LLM health probe."),
     ]
     for method, endp, desc in apis:
         row = table2.add_row().cells

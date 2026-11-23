@@ -4582,3 +4582,264 @@
     display: none;
   }
 }
+
+/* ============================================================================
+   NVIDIA LLM Settings Pill, Floating Popup & Post-Login Config Card
+   ============================================================================ */
+
+.nvidia-mark {
+  display: inline-block;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+
+.llm-pill-anchor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.llm-pill-btn {
+  gap: 7px;
+  padding: 0 11px 0 9px;
+}
+
+.llm-pill-btn__logo {
+  border-radius: 4px;
+}
+
+.llm-pill-btn__label {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--on-surface);
+  white-space: nowrap;
+}
+
+.llm-pill-btn__dot,
+.llm-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.llm-pill-btn__dot--green,
+.llm-status-dot.is-green {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.22);
+}
+
+.llm-pill-btn__dot--red,
+.llm-status-dot.is-red {
+  background: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
+}
+
+.llm-status-dot.is-muted {
+  background: var(--outline);
+}
+
+.llm-popup-card {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 200;
+  width: min(370px, calc(100vw - 24px));
+  padding: 18px;
+  gap: 14px;
+  background: var(--surface-glass-strong);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-lg);
+  animation: fade-up 160ms var(--ease);
+}
+
+.llm-popup-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.llm-popup-card__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.llm-popup-card__logo-wrap {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--surface-low);
+  border: 1px solid var(--hairline);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.llm-popup-card__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--on-surface);
+}
+
+.llm-popup-card__sub {
+  display: block;
+  font-size: 11px;
+  color: var(--on-surface-muted);
+}
+
+.llm-popup-card__head-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.llm-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--well-bg);
+  border: 1px solid var(--well-border);
+}
+
+.llm-status-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.llm-status-item__label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.llm-status-item__label strong {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--on-surface);
+}
+
+.llm-status-item__label small {
+  display: block;
+  font-size: 10.5px;
+  color: var(--on-surface-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 195px;
+}
+
+.llm-status-item__state {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.llm-status-item__state.is-online {
+  color: #16a34a;
+}
+
+.llm-status-item__state.is-offline {
+  color: var(--on-surface-muted);
+}
+
+.llm-popup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.llm-popup-form__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.input--with-action {
+  padding-right: 42px;
+}
+
+.input-shell__toggle {
+  position: absolute;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--on-surface-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.input-shell__toggle:hover {
+  background: var(--surface-container);
+  color: var(--on-surface);
+}
+
+.llm-auth-card__brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.llm-auth-card__logo-badge {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--surface-low);
+  border: 1px solid var(--hairline);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.llm-security-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--on-surface-muted);
+  margin: 0;
+}
+
+.auth-card__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@media (max-width: 560px) {
+  .llm-pill-btn__label {
+    display: none;
+  }
+
+  .llm-popup-card {
+    position: fixed;
+    top: 66px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+  }
+}

@@ -94,7 +94,7 @@ def create_app(load_models: bool = True) -> FastAPI:
         CORSMiddleware,
         allow_origins=get_allowed_origins(),
         allow_credentials=False,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
         expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining", "Retry-After"],
         max_age=600,

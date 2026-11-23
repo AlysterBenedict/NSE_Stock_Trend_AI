@@ -15,6 +15,7 @@ from backend.security.integrity import (
     generate_model_manifest,
     verify_artifact_path_and_hash,
 )
+from backend.security.key_vault import EncryptedKeyVault, key_vault, mask_api_key, validate_nvidia_api_key
 from backend.security.sanitizers import (
     is_safe_http_url,
     sanitize_http_url,
@@ -319,3 +320,107 @@ def test_docs_disabled_by_default(monkeypatch):
     with TestClient(app) as client:
         assert client.get("/docs").status_code == 404
         assert client.get("/openapi.json").status_code == 404
+
+
+def test_encrypted_key_vault_roundtrip_isolation_and_tamper(tmp_path, monkeypatch):
+    monkeypatch.setenv("LLM_KEY_ENCRYPTION_SECRET", "unit-test-master-secret-999")
+    vault_file = tmp_path / "vault.json"
+    vault = EncryptedKeyVault(vault_path=str(vault_file))
+
+    raw_key = "nvapi-abcdefghijklmnopqrstuvwxyz123456"
+    assert validate_nvidia_api_key(f"  {raw_key}  ") == raw_key
+    assert mask_api_key(raw_key) == "nvapi-••••••••3456"
+
+    with pytest.raises(ValueError):
+        validate_nvidia_api_key("too-short")
+    with pytest.raises(ValueError):
+        validate_nvidia_api_key("nvapi-contains spaces in key 123456")
+
+    saved = vault.save_user_api_key("user-alice", raw_key)
+    assert saved["has_api_key"] is True
+    assert saved["masked_key"] == "nvapi-••••••••3456"
+
+    on_disk = vault_file.read_text(encoding="utf-8")
+    assert raw_key not in on_disk
+    assert "user-alice" not in on_disk
+
+    assert vault.get_user_api_key("user-alice") == raw_key
+    assert vault.get_user_api_key("user-bob") is None
+    assert vault.get_user_key_metadata("user-alice")["has_api_key"] is True
+    assert vault.get_user_key_metadata("user-bob")["has_api_key"] is False
+
+    # Tampering with ciphertext fails closed
+    tampered = json.loads(on_disk)
+    only_hash = next(iter(tampered["entries"]))
+    tampered["entries"][only_hash]["ciphertext"] = base64.b64encode(b"tampered-bytes-123456").decode("ascii")
+    vault_file.write_text(json.dumps(tampered), encoding="utf-8")
+    assert vault.get_user_api_key("user-alice") is None
+
+    assert vault.delete_user_api_key("user-alice") is True
+    assert vault.get_user_key_metadata("user-alice")["has_api_key"] is False
+
+
+def test_llm_settings_endpoints_and_model_display_rules(auth_client, monkeypatch, tmp_path):
+    client, env = auth_client
+    monkeypatch.setenv("LLM_KEY_ENCRYPTION_SECRET", "endpoint-test-secret-42")
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.setattr(key_vault, "_explicit_vault_path", str(tmp_path / "vault.json"))
+
+    lm_state = {"online": False}
+
+    async def fake_lm_health(_timeout: float = 1.2) -> bool:
+        return lm_state["online"]
+
+    monkeypatch.setattr("backend.routes.ai_routes.check_lm_studio_health_async", fake_lm_health)
+
+    alice_headers = {"Authorization": f"Bearer {env['sign_token'](sub='user-alice-1')}"}
+    bob_headers = {"Authorization": f"Bearer {env['sign_token'](sub='user-bob-2')}"}
+
+    # Both offline initially
+    r_init = client.get("/llm-settings", headers=alice_headers)
+    assert r_init.status_code == 200
+    body_init = r_init.json()
+    assert body_init["has_api_key"] is False
+    assert body_init["llm_configured"] is False
+    assert body_init["active_model_display"] == "LLM Offline"
+    assert body_init["nvidia_base_url"] == "https://integrate.api.nvidia.com/v1"
+    assert body_init["nvidia_model"] == "nvidia/nemotron-3-ultra-550b-a55b"
+
+    # Reject malformed key
+    r_bad = client.post("/llm-settings", json={"api_key": "bad key"}, headers=alice_headers)
+    assert r_bad.status_code == 400
+
+    # Save valid key for Alice; LM Studio offline -> Nemotron 550B
+    secret_key = "nvapi-SecretTestKeyValue000000009012"
+    r_save = client.post("/llm-settings", json={"api_key": secret_key}, headers=alice_headers)
+    assert r_save.status_code == 200
+    body_save = r_save.json()
+    assert body_save["has_api_key"] is True
+    assert body_save["masked_key"] == "nvapi-••••••••9012"
+    assert body_save["llm_configured"] is True
+    assert body_save["active_provider"] == "nvidia"
+    assert body_save["active_model_display"] == "Nemotron 550B"
+    assert secret_key not in r_save.text
+
+    # When both local LM Studio and NVIDIA are online, display local LLM name only (Local LLM)
+    lm_state["online"] = True
+    r_both = client.get("/llm-settings", headers=alice_headers)
+    assert r_both.status_code == 200
+    assert r_both.json()["has_api_key"] is True
+    assert r_both.json()["llm_configured"] is True
+    assert r_both.json()["active_provider"] == "lm_studio"
+    assert r_both.json()["active_model_display"] == "Local LLM"
+
+    # Per-user isolation: Bob has no key saved
+    lm_state["online"] = False
+    r_bob = client.get("/llm-settings", headers=bob_headers)
+    assert r_bob.status_code == 200
+    assert r_bob.json()["has_api_key"] is False
+    assert r_bob.json()["active_model_display"] == "LLM Offline"
+
+    # Delete Alice's key
+    r_del = client.delete("/llm-settings", headers=alice_headers)
+    assert r_del.status_code == 200
+    assert r_del.json()["has_api_key"] is False
+    assert r_del.json()["llm_configured"] is False
+    assert r_del.json()["active_model_display"] == "LLM Offline"

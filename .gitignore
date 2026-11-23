@@ -13,6 +13,10 @@ backend/.env.*
 *.key
 *serviceAccount*.json
 *firebase-adminsdk*.json
+.llm_key_vault.json
+backend/.llm_key_vault.json
+.llm_vault.key
+backend/.llm_vault.key
 
 # Personal / non-code documents
 docs/Internship report.docx

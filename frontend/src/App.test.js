@@ -2,12 +2,15 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import App from './App';
 import { ThemeProvider } from './context/ThemeContext';
 import {
+  deleteLlmApiKey,
   getAlphaRadar,
   getHistoricalData,
+  getLlmSettings,
   getMarketOverview,
   optimizePortfolio,
   predictStockPrice,
   runBacktest,
+  saveLlmApiKey,
 } from './services/apiClient';
 import { onAuthStateChanged } from './services/firebaseAuth';
 
@@ -46,6 +49,9 @@ jest.mock('./services/apiClient', () => ({
   optimizePortfolio: jest.fn(),
   runInvestmentEngine: jest.fn(),
   runBacktest: jest.fn(),
+  getLlmSettings: jest.fn(),
+  saveLlmApiKey: jest.fn(),
+  deleteLlmApiKey: jest.fn(),
 }));
 
 jest.mock('./services/firebaseAuth', () => ({
@@ -214,6 +220,50 @@ beforeEach(() => {
     drawdown_curve: [{ time: '2025-01-01', strategy_dd: 0, benchmark_dd: 0 }],
     recent_rebalances: [],
   });
+  getLlmSettings.mockResolvedValue({
+    has_api_key: true,
+    masked_key: 'nvapi-••••••••1234',
+    lm_studio_available: false,
+    nvidia_llm_online: true,
+    llm_configured: true,
+    active_provider: 'nvidia',
+    active_model_display: 'Nemotron 550B',
+    local_model: 'google/gemma-4-26b-a4b',
+    local_model_display: 'Local LLM',
+    nvidia_model: 'nvidia/nemotron-3-ultra-550b-a55b',
+    nvidia_model_display: 'Nemotron 550B',
+    nvidia_base_url: 'https://integrate.api.nvidia.com/v1',
+  });
+  saveLlmApiKey.mockResolvedValue({
+    status: 'saved',
+    has_api_key: true,
+    masked_key: 'nvapi-••••••••9999',
+    lm_studio_available: false,
+    nvidia_llm_online: true,
+    llm_configured: true,
+    active_provider: 'nvidia',
+    active_model_display: 'Nemotron 550B',
+    local_model: 'google/gemma-4-26b-a4b',
+    local_model_display: 'Local LLM',
+    nvidia_model: 'nvidia/nemotron-3-ultra-550b-a55b',
+    nvidia_model_display: 'Nemotron 550B',
+    nvidia_base_url: 'https://integrate.api.nvidia.com/v1',
+  });
+  deleteLlmApiKey.mockResolvedValue({
+    status: 'deleted',
+    has_api_key: false,
+    masked_key: null,
+    lm_studio_available: false,
+    nvidia_llm_online: false,
+    llm_configured: false,
+    active_provider: 'none',
+    active_model_display: 'LLM Offline',
+    local_model: 'google/gemma-4-26b-a4b',
+    local_model_display: 'Local LLM',
+    nvidia_model: 'nvidia/nemotron-3-ultra-550b-a55b',
+    nvidia_model_display: 'Nemotron 550B',
+    nvidia_base_url: 'https://integrate.api.nvidia.com/v1',
+  });
 });
 
 function renderApp() {
@@ -325,4 +375,101 @@ test('navigates cleanly across all authenticated dashboards and TrendAI drawer',
 
   fireEvent.click(screen.getByRole('button', { name: /Open TrendAI assistant/i }));
   expect(screen.getByRole('heading', { name: /TrendAI/i })).toBeInTheDocument();
+});
+
+test('shows NVIDIA LLM config card after login when no key is saved and transitions into app after Save & Continue', async () => {
+  getLlmSettings.mockResolvedValueOnce({
+    has_api_key: false,
+    masked_key: null,
+    lm_studio_available: false,
+    nvidia_llm_online: false,
+    llm_configured: false,
+    active_provider: 'none',
+    active_model_display: 'LLM Offline',
+    local_model: 'google/gemma-4-26b-a4b',
+    local_model_display: 'Local LLM',
+    nvidia_model: 'nvidia/nemotron-3-ultra-550b-a55b',
+    nvidia_model_display: 'Nemotron 550B',
+  });
+  onAuthStateChanged.mockImplementation((_auth, callback) => {
+    callback({ uid: 'u-new-1', email: 'newuser@neurostock.ai' });
+    return jest.fn();
+  });
+
+  renderApp();
+
+  expect(await screen.findByRole('heading', { name: /NVIDIA LLM Setup/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Skip/i })).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText(/NVIDIA API Key/i), {
+    target: { value: 'nvapi-ValidTestKey01234567899999' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /Save & Continue/i }));
+
+  expect(await screen.findByRole('heading', { name: /Market Overview/i })).toBeInTheDocument();
+  expect(saveLlmApiKey).toHaveBeenCalledWith('nvapi-ValidTestKey01234567899999');
+  expect(screen.getByRole('button', { name: /LLM Connection Settings: Nemotron 550B \(Online\)/i })).toBeInTheDocument();
+});
+
+test('allows skipping onboarding card, shows LLM Offline red pill, and opens floating popup to save key', async () => {
+  getLlmSettings.mockResolvedValue({
+    has_api_key: false,
+    masked_key: null,
+    lm_studio_available: false,
+    nvidia_llm_online: false,
+    llm_configured: false,
+    active_provider: 'none',
+    active_model_display: 'LLM Offline',
+    local_model: 'google/gemma-4-26b-a4b',
+    local_model_display: 'Local LLM',
+    nvidia_model: 'nvidia/nemotron-3-ultra-550b-a55b',
+    nvidia_model_display: 'Nemotron 550B',
+  });
+  onAuthStateChanged.mockImplementation((_auth, callback) => {
+    callback({ uid: 'u-skip-1', email: 'skipper@neurostock.ai' });
+    return jest.fn();
+  });
+
+  renderApp();
+
+  expect(await screen.findByRole('heading', { name: /NVIDIA LLM Setup/i })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /Skip/i }));
+
+  expect(await screen.findByRole('heading', { name: /Market Overview/i })).toBeInTheDocument();
+  const pillBtn = screen.getByRole('button', { name: /LLM Connection Settings: LLM Offline \(Offline\)/i });
+  expect(pillBtn).toBeInTheDocument();
+
+  fireEvent.click(pillBtn);
+  expect(await screen.findByRole('dialog', { name: /LLM Connection Settings/i })).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText(/NVIDIA API Key/i), {
+    target: { value: 'nvapi-ValidTestKey01234567899999' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: /Save API Key/i }));
+
+  expect(await screen.findByRole('button', { name: /LLM Connection Settings: Nemotron 550B \(Online\)/i })).toBeInTheDocument();
+});
+
+test('displays Local LLM in header pill when both local LM Studio and NVIDIA LLM are online', async () => {
+  getLlmSettings.mockResolvedValue({
+    has_api_key: true,
+    masked_key: 'nvapi-••••••••1234',
+    lm_studio_available: true,
+    nvidia_llm_online: true,
+    llm_configured: true,
+    active_provider: 'lm_studio',
+    active_model_display: 'Local LLM',
+    local_model: 'google/gemma-4-26b-a4b',
+    local_model_display: 'Local LLM',
+    nvidia_model: 'nvidia/nemotron-3-ultra-550b-a55b',
+    nvidia_model_display: 'Nemotron 550B',
+  });
+  onAuthStateChanged.mockImplementation((_auth, callback) => {
+    callback({ uid: 'u-both-1', email: 'both@neurostock.ai' });
+    return jest.fn();
+  });
+
+  renderApp();
+
+  expect(await screen.findByRole('heading', { name: /Market Overview/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /LLM Connection Settings: Local LLM \(Online\)/i })).toBeInTheDocument();
 });

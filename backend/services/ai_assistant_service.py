@@ -371,7 +371,7 @@ def _build_deterministic_quant_brief(structured_dossiers: list[dict], intent: st
         tab_label = sanitize_prompt_text((active_context or {}).get("tab") or "Market Overview", max_len=40)
         return (
             f"### TrendAI Quant Desk ({tab_label})\n\n"
-            "Local LLM synthesis (LM Studio) is currently offline, and no specific equity ticker was detected in your prompt.\n\n"
+            "Local LLM (LM Studio) and NVIDIA LLM fallback are currently offline, and no specific equity ticker was detected in your prompt.\n\n"
             "- Mention an NSE stock (e.g., **Infosys**, **HDFC Bank**, **Reliance**) to pull live Global Panel forecasts, factor ranks, and FinBERT headline catalysts.\n"
             "- Open the **Alpha Radar** tab to inspect all 100 NSE equities scored side-by-side."
         )
@@ -435,7 +435,7 @@ def _build_deterministic_quant_brief(structured_dossiers: list[dict], intent: st
             f"**Final Verdict:** Quantitatively, **{lead['name']}** exhibits the stronger composite signal in this snapshot; always pair position sizing with the 90% volatility confidence band."
         )
 
-    sections.append("_Note: Generated directly from live Global Panel data & FinBERT signals (LM Studio offline fallback)._")
+    sections.append("_Note: Generated directly from live Global Panel data & FinBERT signals (LM Studio & NVIDIA LLM offline fallback)._")
     return "\n\n".join(sections)
 
 

@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { BrandMark, Icon } from '../common/ui';
+import LlmSettingsPopup from '../common/LlmSettingsPopup';
+import { BrandMark, Icon, NvidiaMark } from '../common/ui';
 
 /** NSE cash session: Mon–Fri, 09:15–15:30 IST. */
 function getNseSession(now = new Date()) {
@@ -21,8 +22,14 @@ const AppHeader = ({
   onOpenCommandPalette,
   onOpenWatchlist,
   watchlistCount = 0,
+  llmSettings = null,
+  onSaveLlmKey,
+  onDeleteLlmKey,
+  onRefreshLlmSettings,
 }) => {
   const [session, setSession] = useState(getNseSession());
+  const [llmPopupOpen, setLlmPopupOpen] = useState(false);
+  const llmPillRef = useRef(null);
   const { isDark, toggleTheme } = useTheme();
 
   useEffect(() => {
@@ -30,7 +37,29 @@ const AppHeader = ({
     return () => clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    if (!user) {
+      setLlmPopupOpen(false);
+    }
+  }, [user]);
+
   const initial = (user?.email || 'U').charAt(0).toUpperCase();
+  const lmOnline = Boolean(llmSettings?.lm_studio_available);
+  const nvidiaOnline = Boolean(llmSettings?.has_api_key || llmSettings?.nvidia_llm_online);
+  const isLlmOnline = Boolean(lmOnline || nvidiaOnline || llmSettings?.llm_configured);
+  const llmDisplayName = lmOnline
+    ? llmSettings?.local_model_display || 'Local LLM'
+    : nvidiaOnline
+    ? llmSettings?.nvidia_model_display || 'Nemotron 550B'
+    : 'LLM Offline';
+
+  const handleToggleLlmPopup = () => {
+    const nextOpen = !llmPopupOpen;
+    setLlmPopupOpen(nextOpen);
+    if (nextOpen) {
+      onRefreshLlmSettings?.();
+    }
+  };
 
   return (
     <header className="app-header">
@@ -88,6 +117,35 @@ const AppHeader = ({
                 <span className="header-pill-btn__label">Watchlist</span>
                 {watchlistCount > 0 && <span className="header-pill-btn__count">{watchlistCount}</span>}
               </button>
+
+              <div className="llm-pill-anchor">
+                <button
+                  ref={llmPillRef}
+                  type="button"
+                  className={`header-pill-btn llm-pill-btn${isLlmOnline ? ' is-online' : ' is-offline'}`}
+                  onClick={handleToggleLlmPopup}
+                  aria-expanded={llmPopupOpen}
+                  aria-haspopup="dialog"
+                  aria-label={`LLM Connection Settings: ${llmDisplayName} (${isLlmOnline ? 'Online' : 'Offline'})`}
+                  title={`LLM Connection: ${llmDisplayName} (${isLlmOnline ? 'Online' : 'Click to configure NVIDIA API key'})`}
+                >
+                  <NvidiaMark size={16} className="llm-pill-btn__logo" />
+                  <span className="llm-pill-btn__label">{llmDisplayName}</span>
+                  <span
+                    className={`llm-pill-btn__dot ${isLlmOnline ? 'llm-pill-btn__dot--green' : 'llm-pill-btn__dot--red'}`}
+                    aria-hidden="true"
+                  />
+                </button>
+
+                <LlmSettingsPopup
+                  isOpen={llmPopupOpen}
+                  anchorRef={llmPillRef}
+                  llmSettings={llmSettings}
+                  onClose={() => setLlmPopupOpen(false)}
+                  onSaveKey={onSaveLlmKey}
+                  onDeleteKey={onDeleteLlmKey}
+                />
+              </div>
 
               <div className="user-chip">
                 <span className="user-chip__avatar">{initial}</span>

@@ -25,6 +25,18 @@ export const BrandMark = ({ size = 36 }) => (
   />
 );
 
+/** NVIDIA logo mark used in the LLM connection pill, popup, and onboarding card. */
+export const NvidiaMark = ({ size = 18, className = '' }) => (
+  <img
+    src="/nvidia.png"
+    alt="NVIDIA"
+    className={`nvidia-mark${className ? ` ${className}` : ''}`}
+    width={size}
+    height={size}
+    style={{ objectFit: 'contain' }}
+  />
+);
+
 /** Consistent page title block used at the top of every view. */
 export const PageHeader = ({ eyebrow, icon, title, description, actions }) => (
   <header className="page-header">

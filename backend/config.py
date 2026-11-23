@@ -151,9 +151,42 @@ def get_lm_studio_api_url() -> str:
     return validate_llm_url(raw, allow_remote=is_remote_llm_allowed())
 
 
+DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+DEFAULT_NVIDIA_MODEL_NAME = "nvidia/nemotron-3-ultra-550b-a55b"
+LOCAL_MODEL_DISPLAY_NAME = "Local LLM"
+NVIDIA_MODEL_DISPLAY_NAME = "Nemotron 550B"
+
+
+def get_nvidia_base_url() -> str:
+    raw = os.environ.get("NVIDIA_BASE_URL", DEFAULT_NVIDIA_BASE_URL).strip().rstrip("/")
+    return validate_llm_url(raw or DEFAULT_NVIDIA_BASE_URL, allow_remote=True)
+
+
+def get_nvidia_api_url() -> str:
+    explicit = os.environ.get("NVIDIA_API_URL", "").strip()
+    if explicit:
+        return validate_llm_url(explicit, allow_remote=True)
+    base = get_nvidia_base_url()
+    if base.endswith("/chat/completions"):
+        return base
+    return f"{base}/chat/completions"
+
+
+def get_nvidia_model_name() -> str:
+    return (
+        os.environ.get("NVIDIA_MODEL_NAME", DEFAULT_NVIDIA_MODEL_NAME).strip()
+        or DEFAULT_NVIDIA_MODEL_NAME
+    )
+
+
+def get_nvidia_api_key_env() -> str:
+    return os.environ.get("NVIDIA_API_KEY", "").strip()
+
+
 def validate_runtime_security_config() -> None:
     """Enforce fail-closed security invariants before starting the ASGI application."""
     get_lm_studio_api_url()
+    get_nvidia_api_url()
     if get_app_env() == "production":
         if not is_auth_required():
             raise RuntimeError("AUTH_REQUIRED cannot be disabled when APP_ENV=production.")

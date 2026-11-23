@@ -10,9 +10,12 @@ import pandas as pd
 import pytest
 
 from backend.app import create_app
+from backend.security.auth import current_user_id_ctx
+from backend.security.key_vault import key_vault
 from backend.services.ai_assistant_service import _compute_stock_dossier_quant_sync
 from backend.services.alpha_radar_service import _RADAR_SINGLEFLIGHT, get_alpha_radar_async
 from backend.services.feature_engineering import BASE_FEATURE_COLUMNS, add_cross_sectional_features
+from backend.services.llm_client import async_chat_completion
 from backend.services.runtime import AsyncSingleflightCache
 
 
@@ -187,3 +190,54 @@ def test_vectorized_cross_sectional_features_consistency():
     assert not enriched.isna().any().any()
     assert enriched["cs_rank_ret_21d"].min() >= -0.5
     assert enriched["cs_rank_ret_21d"].max() <= 0.5
+
+
+@pytest.mark.asyncio
+async def test_llm_client_prefers_lm_studio_and_falls_back_to_nvidia(monkeypatch, tmp_path):
+    monkeypatch.setenv("LLM_KEY_ENCRYPTION_SECRET", "async-failover-test-secret")
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.setattr(key_vault, "_explicit_vault_path", str(tmp_path / "vault.json"))
+    key_vault.save_user_api_key("user-alice-123", "nvapi-TestFailoverKey9876543210")
+
+    calls = []
+
+    class FakeResp:
+        def __init__(self, text: str) -> None:
+            self._text = text
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"choices": [{"message": {"content": self._text}}]}
+
+    async def fake_post_lm_ok(url, payload, headers, timeout):
+        calls.append((url, payload, headers))
+        return FakeResp("Local LM Studio response")
+
+    monkeypatch.setattr("backend.services.llm_client._post_json", fake_post_lm_ok)
+    token = current_user_id_ctx.set("user-alice-123")
+    try:
+        res_local = await async_chat_completion([{"role": "user", "content": "Hello"}])
+        assert res_local == "Local LM Studio response"
+        assert len(calls) == 1
+        assert calls[0][0].startswith("http://127.0.0.1:1234")
+
+        calls.clear()
+
+        async def fake_post_lm_down_nvidia_ok(url, payload, headers, timeout):
+            calls.append((url, payload, headers))
+            if "127.0.0.1:1234" in url:
+                raise httpx.ConnectError("LM Studio offline")
+            return FakeResp("NVIDIA Nemotron response")
+
+        monkeypatch.setattr("backend.services.llm_client._post_json", fake_post_lm_down_nvidia_ok)
+        res_nvidia = await async_chat_completion([{"role": "user", "content": "Hello"}])
+        assert res_nvidia == "NVIDIA Nemotron response"
+        assert len(calls) == 2
+        assert "127.0.0.1:1234" in calls[0][0]
+        assert calls[1][0] == "https://integrate.api.nvidia.com/v1/chat/completions"
+        assert calls[1][1]["model"] == "nvidia/nemotron-3-ultra-550b-a55b"
+        assert calls[1][2]["Authorization"] == "Bearer nvapi-TestFailoverKey9876543210"
+    finally:
+        current_user_id_ctx.reset(token)

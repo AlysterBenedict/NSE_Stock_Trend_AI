@@ -103,4 +103,13 @@ export const runBacktest = (payload, signal) =>
 export const runInvestmentEngine = (payload, signal) =>
   api.post('/investment-engine', payload, { signal, timeout: 120000 }).then((res) => res.data);
 
+export const getLlmSettings = (signal) =>
+  api.get('/llm-settings', { signal, timeout: 15000 }).then((res) => res.data);
+
+export const saveLlmApiKey = (apiKey, signal) =>
+  api.post('/llm-settings', { api_key: apiKey }, { signal, timeout: 15000 }).then((res) => res.data);
+
+export const deleteLlmApiKey = (signal) =>
+  api.delete('/llm-settings', { signal, timeout: 15000 }).then((res) => res.data);
+
 export default api;

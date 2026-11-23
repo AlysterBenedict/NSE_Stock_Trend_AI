@@ -18,6 +18,7 @@ You can expect an acknowledgment within 48 hours and a coordinated fix prior to 
 3. **Strict Input Validation & Bounds**: All request payloads are validated using Pydantic v2 schemas (finite float checks, ISO date caps, allowlisted tickers/algorithms/modes) and bounded request body size (`256 KB` default).
 4. **Prompt Injection & SSRF Mitigations**: Untrusted user prompts and external Yahoo Finance news headlines are sanitized, length-bounded, and isolated inside explicit XML data delimiters; external URLs and `LM_STUDIO_API_URL` are strictly scheme/host-validated.
 5. **Browser & Transport Hardening**: Strict CORS origin allowlist, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, CSP, sliding-window per-user/per-IP rate limiting, DOM-safe PDF export without `document.write`, and `http:`/`https:` link sanitization.
+6. **Per-User Encrypted LLM Key Vault**: User-supplied NVIDIA NIM API keys are validated, pseudonymized by SHA-256 account hash, and encrypted at rest using **AES-256-GCM** with per-user **HKDF-SHA256** derived keys and AEAD Associated Data (`backend/security/key_vault.py`). Raw API keys are never returned in API responses or logged.
 
 ## Public Deployment Checklist
 

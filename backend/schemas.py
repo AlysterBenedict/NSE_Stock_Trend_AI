@@ -7,6 +7,7 @@ from typing import Literal, Union
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.config import ALGORITHMS, STOCK_LIST
+from backend.security.key_vault import validate_nvidia_api_key
 from backend.security.sanitizers import sanitize_prompt_text
 
 _ALLOWED_ALGO_SET = frozenset(ALGORITHMS)
@@ -291,3 +292,14 @@ class AiInsightsRequest(BaseModel):
         if not self.user_question and not self.stock_name and not self.active_context:
             raise ValueError("Missing user_question or stock context")
         return self
+
+
+class LlmKeyUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    api_key: str = Field(..., min_length=20, max_length=256)
+
+    @field_validator("api_key")
+    @classmethod
+    def check_api_key(cls, v: str) -> str:
+        return validate_nvidia_api_key(v)

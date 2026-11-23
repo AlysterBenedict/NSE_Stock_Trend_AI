@@ -10,6 +10,7 @@ import { useTheme } from './context/ThemeContext';
 import { WatchlistProvider, useWatchlist } from './context/WatchlistContext';
 import AiMarketChatBot from './features/assistant/AiMarketChatBot';
 import FinancialEducationTutor from './features/assistant/FinancialEducationTutor';
+import LlmConfigCard from './features/auth/LlmConfigCard';
 import LoginPage from './features/auth/LoginPage';
 import SignupPage from './features/auth/SignupPage';
 import AiInvestmentEngine from './features/investment/AiInvestmentEngine';
@@ -22,10 +23,37 @@ import FiftyTwoWeekDashboard from './features/prediction/FiftyTwoWeekDashboard';
 import ModelComparisonDashboard from './features/prediction/ModelComparisonDashboard';
 import PredictionDashboard from './features/prediction/PredictionDashboard';
 import NewsSentimentDashboard from './features/sentiment/NewsSentimentDashboard';
-import { getAiInsights, predictStockPrice } from './services/apiClient';
+import {
+  deleteLlmApiKey,
+  getAiInsights,
+  getLlmSettings,
+  predictStockPrice,
+  saveLlmApiKey,
+} from './services/apiClient';
 import { auth, onAuthStateChanged, signOut } from './services/firebaseAuth';
 import './styles/App.css';
 import { getNextBusinessDay, isCancelledError } from './utils/formatters';
+
+const DEFAULT_LLM_SETTINGS = {
+  has_api_key: false,
+  masked_key: null,
+  updated_at: null,
+  lm_studio_available: false,
+  nvidia_llm_online: false,
+  llm_configured: false,
+  active_provider: 'none',
+  active_model_display: 'LLM Offline',
+  local_model: 'google/gemma-4-26b-a4b',
+  local_model_display: 'Local LLM',
+  nvidia_model: 'nvidia/nemotron-3-ultra-550b-a55b',
+  nvidia_model_display: 'Nemotron 550B',
+  nvidia_base_url: 'https://integrate.api.nvidia.com/v1',
+};
+
+const getLlmBoundStorageKey = (user) => {
+  const identity = user?.uid || user?.email;
+  return identity ? `neurostock_llm_bound_${identity}` : null;
+};
 
 const TAB_GROUPS = [
   {
@@ -102,6 +130,9 @@ function AppWorkspace({ user, authLoading }) {
 
   // 52-week analysis state
   const [fiftyTwoWeekStock, setFiftyTwoWeekStock] = useState('');
+  const [llmSettings, setLlmSettings] = useState(DEFAULT_LLM_SETTINGS);
+  const [llmStatusChecked, setLlmStatusChecked] = useState(false);
+  const [llmOnboardingSkipped, setLlmOnboardingSkipped] = useState(false);
   const predAbortRef = useRef(null);
   const compAbortRef = useRef(null);
 
@@ -115,14 +146,120 @@ function AppWorkspace({ user, authLoading }) {
     });
   }, []);
 
-  useEffect(() => {
-    if (user) {
-      setPredictionResult({});
-      setError(null);
-      setAuthForm('login');
-      setVisitedTabs(new Set(['market']));
-      setActiveTab('market');
+  const refreshLlmSettings = useCallback(async (signal) => {
+    if (!user) return null;
+    const data = await getLlmSettings(signal);
+    if (data && typeof data === 'object') {
+      setLlmSettings({ ...DEFAULT_LLM_SETTINGS, ...data });
+      const boundKey = getLlmBoundStorageKey(user);
+      if (boundKey) {
+        try {
+          if (data.has_api_key) {
+            window.localStorage.setItem(boundKey, '1');
+          } else {
+            window.localStorage.removeItem(boundKey);
+          }
+        } catch {
+          // Ignore storage quota errors
+        }
+      }
     }
+    return data;
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setLlmSettings(DEFAULT_LLM_SETTINGS);
+      setLlmStatusChecked(false);
+      setLlmOnboardingSkipped(false);
+      return undefined;
+    }
+
+    setPredictionResult({});
+    setError(null);
+    setAuthForm('login');
+    setVisitedTabs(new Set(['market']));
+    setActiveTab('market');
+    setLlmStatusChecked(false);
+    setLlmOnboardingSkipped(false);
+
+    const controller = new AbortController();
+    let active = true;
+
+    (async () => {
+      try {
+        await refreshLlmSettings(controller.signal);
+      } catch (err) {
+        if (!active || isCancelledError(err)) return;
+        const boundKey = getLlmBoundStorageKey(user);
+        let previouslyBound = false;
+        if (boundKey) {
+          try {
+            previouslyBound = window.localStorage.getItem(boundKey) === '1';
+          } catch {
+            previouslyBound = false;
+          }
+        }
+        setLlmSettings({
+          ...DEFAULT_LLM_SETTINGS,
+          has_api_key: previouslyBound,
+          nvidia_llm_online: previouslyBound,
+          llm_configured: previouslyBound,
+          active_provider: previouslyBound ? 'nvidia' : 'none',
+          active_model_display: previouslyBound ? 'Nemotron 550B' : 'LLM Offline',
+        });
+      } finally {
+        if (active) {
+          setLlmStatusChecked(true);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [user, refreshLlmSettings]);
+
+  const handleSaveLlmKey = useCallback(async (apiKey) => {
+    const updated = await saveLlmApiKey(apiKey);
+    if (updated && typeof updated === 'object') {
+      setLlmSettings({ ...DEFAULT_LLM_SETTINGS, ...updated });
+      const boundKey = getLlmBoundStorageKey(user);
+      if (boundKey && updated.has_api_key) {
+        try {
+          window.localStorage.setItem(boundKey, '1');
+        } catch {
+          // Ignore storage errors
+        }
+      }
+    }
+    setLlmOnboardingSkipped(true);
+    return updated;
+  }, [user]);
+
+  const handleDeleteLlmKey = useCallback(async () => {
+    const updated = await deleteLlmApiKey();
+    if (updated && typeof updated === 'object') {
+      setLlmSettings({ ...DEFAULT_LLM_SETTINGS, ...updated });
+    } else {
+      setLlmSettings((prev) => ({
+        ...prev,
+        has_api_key: false,
+        masked_key: null,
+        updated_at: null,
+      }));
+    }
+    const boundKey = getLlmBoundStorageKey(user);
+    if (boundKey) {
+      try {
+        window.localStorage.removeItem(boundKey);
+      } catch {
+        // Ignore storage errors
+      }
+    }
+    setLlmOnboardingSkipped(true);
+    return updated;
   }, [user]);
 
   useEffect(() => {
@@ -310,6 +447,11 @@ function AppWorkspace({ user, authLoading }) {
     );
   }
 
+  const showLlmOnboarding = Boolean(
+    user && llmStatusChecked && !llmSettings.has_api_key && !llmOnboardingSkipped
+  );
+  const showWorkspace = Boolean(user && llmStatusChecked && !showLlmOnboarding);
+
   return (
     <div className="app-shell">
       <div className="ambient-canvas" aria-hidden="true">
@@ -321,12 +463,16 @@ function AppWorkspace({ user, authLoading }) {
       <AppHeader
         user={user}
         onLogout={handleLogout}
-        tabGroups={TAB_GROUPS}
+        tabGroups={showWorkspace ? TAB_GROUPS : []}
         activeTab={activeTab}
         onTabChange={navigateToTab}
         onOpenCommandPalette={() => setCmdOpen(true)}
         onOpenWatchlist={() => setWatchlistOpen(true)}
         watchlistCount={watchlistItems.length}
+        llmSettings={llmSettings}
+        onSaveLlmKey={handleSaveLlmKey}
+        onDeleteLlmKey={handleDeleteLlmKey}
+        onRefreshLlmSettings={() => refreshLlmSettings().catch(() => {})}
       />
 
       {!user ? (
@@ -336,6 +482,19 @@ function AppWorkspace({ user, authLoading }) {
           ) : (
             <SignupPage toggleForm={() => setAuthForm('login')} />
           )}
+        </main>
+      ) : !llmStatusChecked ? (
+        <main className="content-area content-area--auth">
+          <Loader label="Loading workspace..." />
+        </main>
+      ) : showLlmOnboarding ? (
+        <main className="content-area content-area--auth">
+          <LlmConfigCard
+            user={user}
+            llmSettings={llmSettings}
+            onSaveKey={handleSaveLlmKey}
+            onSkip={() => setLlmOnboardingSkipped(true)}
+          />
         </main>
       ) : (
         <main className="content-area">
@@ -450,9 +609,9 @@ function AppWorkspace({ user, authLoading }) {
         </main>
       )}
 
-      <AppFooter showFeatures={!user} />
+      <AppFooter showFeatures={!user || showLlmOnboarding} />
 
-      {user && activeTab !== 'education' && (
+      {showWorkspace && activeTab !== 'education' && (
         <AiMarketChatBot
           onGetInsights={handleGetAiInsights}
           stockName={activeContextStock || 'Market Assistant'}
@@ -464,7 +623,7 @@ function AppWorkspace({ user, authLoading }) {
         />
       )}
 
-      {user && (
+      {showWorkspace && (
         <>
           <CommandPalette
             isOpen={cmdOpen}
