@@ -1,6 +1,5 @@
 import React from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import SafeMarkdown from '../../components/common/SafeMarkdown';
 import { Badge, Card, Icon, PageHeader } from '../../components/common/ui';
 import { getGeneralFinancialKnowledge } from '../../services/apiClient';
 import { useChatSession } from './useChatSession';
@@ -54,7 +53,7 @@ const FinancialEducationTutor = () => {
               </span>
               <div className={`chat-bubble-card chat-bubble-card--${msg.role}`}>
                 <div className="markdown-body">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                  <SafeMarkdown>{msg.text}</SafeMarkdown>
                 </div>
               </div>
             </div>

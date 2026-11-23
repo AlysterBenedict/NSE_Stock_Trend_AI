@@ -5,7 +5,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useWatchlist } from '../../context/WatchlistContext';
 import { getStockMarketDetail } from '../../services/apiClient';
 import { getChartColors, getLightChartOptions } from '../../utils/chartHelpers';
-import { formatPrice } from '../../utils/formatters';
+import { formatPrice, isCancelledError } from '../../utils/formatters';
 
 const MetricItem = ({ label, value, format = null }) => {
   if (value === undefined || value === null) return null;
@@ -40,23 +40,26 @@ const StockDetailsModal = ({ ticker, name, onBack }) => {
   const { isWatched, toggleWatch } = useWatchlist();
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     setLoading(true);
 
     const fetchDetails = async () => {
       try {
-        const data = await getStockMarketDetail(ticker);
-        if (!cancelled) setDetails(data);
+        const data = await getStockMarketDetail(ticker, controller.signal);
+        if (!controller.signal.aborted) setDetails(data);
       } catch (error) {
-        console.error('Error fetching stock details:', error);
+        if (controller.signal.aborted || isCancelledError(error)) return;
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Error fetching stock details:', error);
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
 
     fetchDetails();
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [ticker]);
 
@@ -82,7 +85,15 @@ const StockDetailsModal = ({ ticker, name, onBack }) => {
       lineWidth: 2,
     });
 
-    const sortedData = [...details.chart].sort((a, b) => new Date(a.time) - new Date(b.time));
+    const byTime = new Map();
+    details.chart.forEach((pt) => {
+      if (pt && pt.time && Number.isFinite(Number(pt.value))) {
+        byTime.set(pt.time, Number(pt.value));
+      }
+    });
+    const sortedData = Array.from(byTime.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([time, value]) => ({ time, value }));
     areaSeries.setData(sortedData);
     chart.timeScale().fitContent();
 

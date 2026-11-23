@@ -42,7 +42,9 @@ const LoginPage = ({ toggleForm }) => {
       } else {
         setError('Login failed. Please try again.');
       }
-      console.error('Login failed:', err.code, err.message);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Login failed:', err.code);
+      }
     } finally {
       setLoading(false);
     }

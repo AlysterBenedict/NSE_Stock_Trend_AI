@@ -1265,12 +1265,12 @@ def train_global_panel_for_horizon(panel_base, horizon, models_dir, prefix, devi
     use_entity_ids = profile["use_entity_ids"]
     stride = profile["stride"]
 
-    print(f"\n=====================================================================")
+    print("\n=====================================================================")
     print(
         f"[GLOBAL PANEL SOTA] Horizon = {horizon}d ({horizon_key}) | Output prefix: {prefix} | "
         f"entity_ids={use_entity_ids}, stride={stride}d"
     )
-    print(f"=====================================================================")
+    print("=====================================================================")
 
     df_all = attach_horizon_targets(panel_base, horizon)
     valid_df = df_all[df_all["has_target"]].copy()
@@ -1608,6 +1608,9 @@ def train_global_panel_for_horizon(panel_base, horizon, models_dir, prefix, devi
         joblib.dump(q_model, os.path.join(models_dir, f"{prefix}_{q_name}.joblib"))
 
     update_metrics_summary_batch(horizon_key, global_metrics, per_ticker_metrics)
+    from backend.security.integrity import generate_model_manifest
+
+    generate_model_manifest(os.path.dirname(METRICS_SUMMARY_PATH))
     print(f"Saved Global Panel production models, calibrators & metrics for {horizon_key}.")
 
     if device.type == "cuda":

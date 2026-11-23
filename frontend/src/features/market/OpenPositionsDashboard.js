@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Card, ChangeBadge, EmptyState, Icon, Loader, PageHeader, Stat } from '../../components/common/ui';
-import { getMarketOverview } from '../../services/apiClient';
+import { useMarketData } from '../../context/MarketDataContext';
 import { formatPrice, formatSigned } from '../../utils/formatters';
 
 const FILTER_TABS = [
@@ -10,33 +10,10 @@ const FILTER_TABS = [
 ];
 
 const OpenPositionsDashboard = () => {
-  const [positions, setPositions] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { marketData: positions, loading } = useMarketData();
   const [sortConfig, setSortConfig] = useState({ key: 'pChange', direction: 'desc' });
   const [searchTerm, setSearchTerm] = useState('');
   const [directionFilter, setDirectionFilter] = useState('all');
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const fetchPositions = async () => {
-      try {
-        const data = await getMarketOverview();
-        if (isMounted) {
-          setPositions([...data].sort((a, b) => b.pChange - a.pChange));
-          setLoading(false);
-        }
-      } catch (error) {
-        console.error('Error fetching positions:', error);
-        if (isMounted) setLoading(false);
-      }
-    };
-
-    fetchPositions();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
 
   const handleSort = (key) => {
     const direction = sortConfig.key === key && sortConfig.direction === 'desc' ? 'asc' : 'desc';

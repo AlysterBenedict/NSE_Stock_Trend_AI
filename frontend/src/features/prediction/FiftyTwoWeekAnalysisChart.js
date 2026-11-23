@@ -6,7 +6,7 @@ import { Callout, Card, CardHeader, EmptyState, Loader, Stat } from '../../compo
 import { useTheme } from '../../context/ThemeContext';
 import { getHistoricalData } from '../../services/apiClient';
 import { applyChartTheme, bindResponsiveCharts, getChartColors, getLightChartOptions } from '../../utils/chartHelpers';
-import { formatPrice, formatSigned } from '../../utils/formatters';
+import { formatPrice, formatSigned, isCancelledError } from '../../utils/formatters';
 
 const FiftyTwoWeekAnalysisChart = ({ stockName }) => {
   const chartContainerRef1 = useRef();
@@ -60,14 +60,14 @@ const FiftyTwoWeekAnalysisChart = ({ stockName }) => {
   }, [theme]);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
 
     const fetchDataAndRender = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        const fullData = await getHistoricalData(stockName);
-        if (cancelled) return;
+        const fullData = await getHistoricalData(stockName, controller.signal);
+        if (controller.signal.aborted) return;
 
         if (!fullData || !fullData.ohlc || fullData.ohlc.length === 0) {
           setError('No data available for this stock.');
@@ -181,12 +181,11 @@ const FiftyTwoWeekAnalysisChart = ({ stockName }) => {
           });
         }
       } catch (err) {
-        if (!cancelled) {
-          console.error('Error fetching historical data:', err);
+        if (!controller.signal.aborted && !isCancelledError(err)) {
           setError('Failed to load chart data.');
         }
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!controller.signal.aborted) setIsLoading(false);
       }
     };
 
@@ -204,7 +203,7 @@ const FiftyTwoWeekAnalysisChart = ({ stockName }) => {
     );
 
     return () => {
-      cancelled = true;
+      controller.abort();
       cleanupResize();
     };
   }, [stockName]);

@@ -1,6 +1,7 @@
 """Walk-forward strategy backtest simulator on strict OOS holdout or live panel history."""
 
 import os
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -18,12 +19,18 @@ from backend.config import (
     STOCK_LIST,
     TICKER_TO_ID,
 )
-from backend.services.feature_engineering import FEATURE_COLUMNS, get_live_universe_panel
-from backend.services.market_data_service import resolve_ticker
+from backend.security.integrity import verify_artifact_path_and_hash
+from backend.services.feature_engineering import (
+    FEATURE_COLUMNS,
+    get_live_universe_panel,
+    get_live_universe_panel_async,
+)
+from backend.services.market_data_service import resolve_ticker, resolve_ticker_async
 from backend.services.model_registry import registry
+from backend.services.runtime import runtime
 
 
-def _sf(val, default=0.0, digits=None):
+def _sf(val, default: float = 0.0, digits: int | None = None) -> float:
     try:
         n = float(val)
         if not np.isfinite(n):
@@ -33,13 +40,14 @@ def _sf(val, default=0.0, digits=None):
     return round(n, digits) if digits is not None else n
 
 
-def _build_live_replay_frame(horizon, lookback_months):
+def _build_live_replay_frame(horizon: int, lookback_months: int, panel_df: pd.DataFrame | None = None):
     """Build out-of-sample panel replay frame from live universe data across non-overlapping dates."""
     bundle = registry.get_bundle(horizon)
     if bundle is None:
         return None, f"Global Panel model (h={horizon}D) is not trained yet."
 
-    panel_df, _, _ = get_live_universe_panel(force_refresh=False)
+    if panel_df is None:
+        panel_df, _, _ = get_live_universe_panel(force_refresh=False)
     if panel_df is None or panel_df.empty:
         return None, "Could not load NSE universe panel data."
 
@@ -57,7 +65,6 @@ def _build_live_replay_frame(horizon, lookback_months):
             df = df[df["date"] >= cutoff_dt].copy()
             unique_dates = np.sort(df["date"].unique())
 
-    # Subsample strictly non-overlapping rebalance dates (every h trading days)
     rebalance_dates = unique_dates[:: max(1, horizon)]
     if len(rebalance_dates) < 3:
         rebalance_dates = unique_dates[:: max(1, len(unique_dates) // 8 or 1)]
@@ -76,7 +83,7 @@ def _build_live_replay_frame(horizon, lookback_months):
     if eval_df.empty:
         return None, "Insufficient rebalance rows for replay."
 
-    scaled_full = np.clip(scaler.transform(eval_df[feat_cols].values.astype(np.float64)), -8.0, 8.0)
+    scaled_full = np.clip(scaler.transform(eval_df[feat_cols].to_numpy(dtype=np.float64)), -8.0, 8.0)
     scaled_sel = scaled_full[:, selected_idx] if selected_idx is not None else scaled_full
 
     if use_entity_ids:
@@ -104,42 +111,59 @@ def _build_live_replay_frame(horizon, lookback_months):
 
     for algo in BASE_ALGORITHMS:
         if algo == "AttentionNet":
-            # Build 60d sequences for AttentionNet replay rows
             model_list = models.get("AttentionNet")
             if not model_list:
                 continue
-            by_ticker = {t: grp.sort_values("date") for t, grp in df.groupby("ticker")}
-            seq_rows = []
-            valid_mask = []
-            seq_sids = []
-            seq_secs = []
-            for idx_r, r in eval_df.iterrows():
-                t_df = by_ticker.get(r["ticker"])
-                sub = t_df[t_df["date"] <= r["date"]].tail(LOOKBACK_WINDOW) if t_df is not None else None
-                if sub is not None and len(sub) >= LOOKBACK_WINDOW:
-                    sm = np.clip(scaler.transform(sub[feat_cols].values.astype(np.float64)), -8.0, 8.0)
-                    seq_rows.append((sm[:, selected_idx] if selected_idx is not None else sm).astype(np.float32))
-                    valid_mask.append(True)
-                else:
-                    seq_rows.append(np.zeros((LOOKBACK_WINDOW, scaled_sel.shape[1]), dtype=np.float32))
-                    valid_mask.append(False)
-                seq_sids.append(TICKER_TO_ID.get(r["ticker"], len(TICKER_TO_ID)) if use_entity_ids else len(SORTED_TICKERS) + 2)
-                seq_secs.append(
-                    SECTOR_TO_ID.get(SECTOR_MAP.get(r["ticker"], "Other"), SECTOR_TO_ID["Other"])
+
+            # Pre-scale each ticker history ONCE and slice O(log T) windows via searchsorted
+            all_scaled_full = np.clip(
+                scaler.transform(df[feat_cols].to_numpy(dtype=np.float64)), -8.0, 8.0
+            )
+            all_scaled_sel = (all_scaled_full[:, selected_idx] if selected_idx is not None else all_scaled_full).astype(
+                np.float32
+            )
+            ticker_store: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+            df_reset = df.reset_index(drop=True)
+            for t, idx_arr in df_reset.groupby("ticker").indices.items():
+                sorted_idx = np.sort(idx_arr)
+                ticker_store[t] = (df_reset["date"].values[sorted_idx], all_scaled_sel[sorted_idx])
+
+            n_eval = len(eval_df)
+            seq_tensor = np.zeros((n_eval, LOOKBACK_WINDOW, scaled_sel.shape[1]), dtype=np.float32)
+            valid_mask = np.zeros(n_eval, dtype=bool)
+            seq_sids = np.empty(n_eval, dtype=np.int64)
+            seq_secs = np.empty(n_eval, dtype=np.int64)
+
+            eval_tickers = eval_df["ticker"].values
+            eval_dates = eval_df["date"].values
+            default_sid = len(SORTED_TICKERS) + 2
+            default_sec = len(SECTORS) + 2
+
+            for row_i in range(n_eval):
+                t = eval_tickers[row_i]
+                d = eval_dates[row_i]
+                store = ticker_store.get(t)
+                if store is not None:
+                    t_dates, t_mat = store
+                    pos = int(np.searchsorted(t_dates, d, side="right"))
+                    if pos >= LOOKBACK_WINDOW:
+                        seq_tensor[row_i] = t_mat[pos - LOOKBACK_WINDOW : pos]
+                        valid_mask[row_i] = True
+                seq_sids[row_i] = TICKER_TO_ID.get(t, len(TICKER_TO_ID)) if use_entity_ids else default_sid
+                seq_secs[row_i] = (
+                    SECTOR_TO_ID.get(SECTOR_MAP.get(t, "Other"), SECTOR_TO_ID["Other"])
                     if use_entity_ids
-                    else len(SECTORS) + 2
+                    else default_sec
                 )
-            vmask = np.asarray(valid_mask, dtype=bool)
-            raw_z = np.zeros(len(eval_df), dtype=np.float64)
-            if np.any(vmask):
-                xt = torch.tensor(np.stack(seq_rows)[vmask], dtype=torch.float32, device=registry.device)
-                st = torch.tensor(np.asarray(seq_sids, dtype=np.int64)[vmask], dtype=torch.long, device=registry.device)
-                sct = torch.tensor(np.asarray(seq_secs, dtype=np.int64)[vmask], dtype=torch.long, device=registry.device)
-                bp = []
-                with torch.no_grad():
-                    for m in model_list:
-                        bp.append(m(xt, st, sct).detach().cpu().numpy().reshape(-1))
-                raw_z[vmask] = np.mean(bp, axis=0)
+
+            raw_z = np.zeros(n_eval, dtype=np.float64)
+            if np.any(valid_mask):
+                with runtime.gpu_lock, torch.inference_mode():
+                    xt = torch.tensor(seq_tensor[valid_mask], dtype=torch.float32, device=registry.device)
+                    st = torch.tensor(seq_sids[valid_mask], dtype=torch.long, device=registry.device)
+                    sct = torch.tensor(seq_secs[valid_mask], dtype=torch.long, device=registry.device)
+                    bp = [m(xt, st, sct).detach().cpu().numpy().reshape(-1) for m in model_list]
+                raw_z[valid_mask] = np.mean(bp, axis=0)
         else:
             model_list = models.get(algo)
             if not model_list:
@@ -150,7 +174,9 @@ def _build_live_replay_frame(horizon, lookback_months):
         cal = calibrators.get(algo, {})
         cal_z = float(cal.get("bias", 0.0)) + float(cal.get("gamma", 1.0)) * (raw_z - float(cal.get("center", 0.0)))
         cal_z_map[algo] = cal_z
-        replay_out[f"pred_{algo}"] = np.clip(market_drift_ret + np.clip(cal_z, -3.0, 3.0) * vol_scales, -max_ret_cap, max_ret_cap)
+        replay_out[f"pred_{algo}"] = np.clip(
+            market_drift_ret + np.clip(cal_z, -3.0, 3.0) * vol_scales, -max_ret_cap, max_ret_cap
+        )
 
     ens_z = np.full(len(eval_df), float(ens_meta.get("intercept", 0.0)), dtype=np.float64)
     for base_algo, weight in zip(ens_meta.get("base_models", []), ens_meta.get("weights", [])):
@@ -163,14 +189,16 @@ def _build_live_replay_frame(horizon, lookback_months):
 
 
 def run_strategy_backtest(
-    strategy="top_n_long",
-    horizon=21,
-    algorithm="Ensemble",
-    top_n=10,
-    cost_bps=15.0,
-    initial_capital=100000.0,
-    lookback_months=24,
-    stock_name=None,
+    strategy: str = "top_n_long",
+    horizon: int = 21,
+    algorithm: str = "Ensemble",
+    top_n: int = 10,
+    cost_bps: float = 15.0,
+    initial_capital: float = 100000.0,
+    lookback_months: int = 24,
+    stock_name: str | None = None,
+    panel_df: pd.DataFrame | None = None,
+    resolved_target_ticker: str | None = None,
 ):
     """Run non-overlapping walk-forward backtest with realistic NSE transaction costs."""
     available_horizons = [h for h in FORECAST_HORIZONS if registry.get_bundle(h) is not None]
@@ -183,10 +211,11 @@ def run_strategy_backtest(
     holdout_path = os.path.join(MODELS_DIR, f"holdout_eval_{horizon_key}.joblib")
 
     if os.path.exists(holdout_path):
-        df = joblib.load(holdout_path)
+        safe_holdout = verify_artifact_path_and_hash(holdout_path, models_dir=MODELS_DIR)
+        df = joblib.load(safe_holdout)
         replay_mode = "strict_oos_holdout"
     else:
-        df, err = _build_live_replay_frame(h, lookback_months)
+        df, err = _build_live_replay_frame(h, lookback_months, panel_df=panel_df)
         if err:
             return None, (err, 400)
         replay_mode = "live_panel_replay"
@@ -208,8 +237,8 @@ def run_strategy_backtest(
     if len(rebalance_dates) < 2:
         return None, ("Not enough rebalance dates for the selected lookback window.", 400)
 
-    target_ticker = None
-    if strategy == "single_stock":
+    target_ticker = resolved_target_ticker
+    if strategy == "single_stock" and not target_ticker:
         _, target_ticker = resolve_ticker(stock_name or "Infosys")
         if not target_ticker:
             return None, (f"Invalid stock_name: {stock_name}", 400)
@@ -266,7 +295,6 @@ def run_strategy_backtest(
             short_r = float(np.mean(np.exp(shorts["fwd_ret"].values) - 1.0))
             gross_r = 0.5 * (long_r - short_r) + 0.5 * (np.exp(rf_period) - 1.0)
         else:
-            # Top-N Long-Only Rotation
             ordered = grp.sort_values(pred_col, ascending=False)
             k = min(max(2, int(top_n)), len(ordered))
             picks = ordered.iloc[:k]
@@ -360,3 +388,46 @@ def run_strategy_backtest(
         },
         "recent_rebalances": recent_rebalances[-8:][::-1],
     }, None
+
+
+async def run_strategy_backtest_async(
+    strategy: str = "top_n_long",
+    horizon: int = 21,
+    algorithm: str = "Ensemble",
+    top_n: int = 10,
+    cost_bps: float = 15.0,
+    initial_capital: float = 100000.0,
+    lookback_months: int = 24,
+    stock_name: str | None = None,
+):
+    """Non-blocking wrapper for walk-forward strategy backtest."""
+    try:
+        h = int(horizon)
+    except Exception:
+        h = 21
+
+    resolved_ticker = None
+    if strategy == "single_stock":
+        _, resolved_ticker = await resolve_ticker_async(stock_name or "Infosys")
+        if not resolved_ticker:
+            return None, (f"Invalid stock_name: {stock_name}", 400)
+
+    horizon_key = "one_day" if h == 1 else f"h{h}"
+    holdout_path = os.path.join(MODELS_DIR, f"holdout_eval_{horizon_key}.joblib")
+    panel_df = None
+    if not os.path.exists(holdout_path):
+        panel_df, _, _ = await get_live_universe_panel_async(force_refresh=False)
+
+    return await runtime.run_cpu(
+        run_strategy_backtest,
+        strategy,
+        h,
+        algorithm,
+        top_n,
+        cost_bps,
+        initial_capital,
+        lookback_months,
+        stock_name,
+        panel_df,
+        resolved_ticker,
+    )

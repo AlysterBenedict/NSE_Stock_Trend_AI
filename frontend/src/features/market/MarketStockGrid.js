@@ -102,4 +102,4 @@ const MarketStockGrid = ({ data, onSelectStock }) => {
   );
 };
 
-export default MarketStockGrid;
+export default React.memo(MarketStockGrid);

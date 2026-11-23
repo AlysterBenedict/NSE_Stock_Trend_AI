@@ -1,13 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo } from 'react';
+import { useMarketData } from '../../context/MarketDataContext';
 import { useWatchlist } from '../../context/WatchlistContext';
-import { getMarketOverview } from '../../services/apiClient';
 import { formatPrice, formatSigned } from '../../utils/formatters';
 import { Badge, ChangeBadge, EmptyState, Icon } from './ui';
 
 const WatchlistDrawer = ({ isOpen, onClose, onJumpToForecast }) => {
   const { items, removeWatch, setPriceAlert } = useWatchlist();
-  const [quotesMap, setQuotesMap] = useState({});
-  const [refreshing, setRefreshing] = useState(false);
+  const { marketData, loading: refreshing } = useMarketData();
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -18,28 +17,16 @@ const WatchlistDrawer = ({ isOpen, onClose, onJumpToForecast }) => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  useEffect(() => {
-    if (!isOpen || items.length === 0) return undefined;
-    let active = true;
-    setRefreshing(true);
-    getMarketOverview()
-      .then((list) => {
-        if (!active || !Array.isArray(list)) return;
-        const map = {};
-        list.forEach((row) => {
-          map[row.symbol] = row;
-          map[row.name] = row;
-        });
-        setQuotesMap(map);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (active) setRefreshing(false);
+  const quotesMap = useMemo(() => {
+    const map = {};
+    if (Array.isArray(marketData)) {
+      marketData.forEach((row) => {
+        map[row.symbol] = row;
+        map[row.name] = row;
       });
-    return () => {
-      active = false;
-    };
-  }, [isOpen, items.length]);
+    }
+    return map;
+  }, [marketData]);
 
   if (!isOpen) return null;
 

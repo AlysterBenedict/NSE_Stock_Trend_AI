@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, ColorType } from 'lightweight-charts';
-import ReactMarkdown from 'react-markdown';
+import SafeMarkdown from '../../components/common/SafeMarkdown';
 import {
   Badge,
   Callout,
@@ -494,7 +494,7 @@ const AiInvestmentEngine = () => {
                   subtitle="Cross-sectional rationale based on return, volatility, and sentiment scores"
                 />
                 <div className="markdown-body">
-                  <ReactMarkdown>{results.ai_advice}</ReactMarkdown>
+                  <SafeMarkdown>{results.ai_advice}</SafeMarkdown>
                 </div>
               </Card>
             </div>

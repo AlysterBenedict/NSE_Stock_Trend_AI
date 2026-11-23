@@ -269,10 +269,13 @@ test('navigates cleanly across all authenticated dashboards and TrendAI drawer',
 
   expect(await screen.findByRole('heading', { name: /Market Overview/i })).toBeInTheDocument();
   expect((await screen.findAllByText(/Infosys/i)).length).toBeGreaterThan(0);
+  // Alpha Radar should stay lazily unmounted until user navigates to the Alpha Radar tab
+  expect(getAlphaRadar).not.toHaveBeenCalled();
 
   fireEvent.click(screen.getByRole('tab', { name: /Alpha Radar/i }));
   expect(await screen.findByRole('heading', { name: /NSE 100 Alpha Radar/i })).toBeInTheDocument();
   expect(await screen.findByText(/NSE Sector Rotation Matrix/i)).toBeInTheDocument();
+  expect(getAlphaRadar).toHaveBeenCalledTimes(1);
 
   fireEvent.click(screen.getByRole('tab', { name: /Positions/i }));
   expect(await screen.findByRole('heading', { name: /Market Positions/i })).toBeInTheDocument();

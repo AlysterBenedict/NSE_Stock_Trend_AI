@@ -64,6 +64,10 @@ const PortfolioReturnCalculator = ({ seedStocks = null }) => {
   const [loadingTopPicks, setLoadingTopPicks] = useState(false);
 
   const chartContainerRef = useRef(null);
+  const baselineSeriesRef = useRef(null);
+  const chartDatesRef = useRef([]);
+  const principalRef = useRef(principal);
+  principalRef.current = principal;
   const abortControllerRef = useRef(null);
   const { theme } = useTheme();
   const colors = getChartColors(theme);
@@ -235,10 +239,12 @@ const PortfolioReturnCalculator = ({ seedStocks = null }) => {
     if (activeChartResult.chart_data) {
       const areaData = activeChartResult.chart_data.map((d) => ({ time: d.time, value: d.value }));
       if (areaData.length > 0) {
-        const numPrincipal = parseFloat(principal);
+        const numPrincipal = parseFloat(principalRef.current) || 0;
+        chartDatesRef.current = areaData.map((d) => d.time);
         const baselineData = areaData.map((d) => ({ time: d.time, value: numPrincipal }));
         areaSeries.setData(areaData);
         baselineSeries.setData(baselineData);
+        baselineSeriesRef.current = baselineSeries;
       }
 
       if (Array.isArray(activeChartResult.p90_chart_data) && activeChartResult.p90_chart_data.length > 0) {
@@ -276,9 +282,19 @@ const PortfolioReturnCalculator = ({ seedStocks = null }) => {
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', handleResize);
+      baselineSeriesRef.current = null;
+      chartDatesRef.current = [];
       chart.remove();
     };
-  }, [activeChartResult, principal, theme, colors]);
+  }, [activeChartResult, theme, colors]);
+
+  useEffect(() => {
+    if (!baselineSeriesRef.current || chartDatesRef.current.length === 0) return;
+    const numPrincipal = parseFloat(principal) || 0;
+    baselineSeriesRef.current.setData(
+      chartDatesRef.current.map((time) => ({ time, value: numPrincipal }))
+    );
+  }, [principal]);
 
   const pctVsPrincipal = (val) => {
     const p = parseFloat(principal);

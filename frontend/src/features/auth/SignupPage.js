@@ -34,22 +34,24 @@ const SignupPage = ({ toggleForm }) => {
       setError('Passwords do not match.');
       return;
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters long.');
+    if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+      setError('Password must be at least 8 characters and include a letter and a number.');
       return;
     }
     setLoading(true);
     try {
       await createUserWithEmailAndPassword(auth, email, password);
     } catch (err) {
-      if (err.code === 'auth/email-already-in-use') {
-        setError('This email address is already registered.');
-      } else if (err.code === 'auth/invalid-email') {
+      if (err.code === 'auth/invalid-email') {
         setError('Please enter a valid email address.');
+      } else if (err.code === 'auth/weak-password') {
+        setError('Password is too weak. Use at least 8 characters with letters and numbers.');
       } else {
-        setError('Signup failed. Please try again.');
+        setError('Unable to create account with these details. Please verify your email or log in.');
       }
-      console.error('Signup failed:', err.code, err.message);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Signup failed:', err.code);
+      }
     } finally {
       setLoading(false);
     }
@@ -112,7 +114,7 @@ const SignupPage = ({ toggleForm }) => {
             </div>
           </Field>
 
-          <Field label="Password" hint="Min. 6 characters" htmlFor="signup-password">
+          <Field label="Password" hint="Min. 8 chars (letter + number)" htmlFor="signup-password">
             <div className="input-shell">
               <Icon name="lock" size={18} className="input-shell__icon" />
               <input
@@ -122,9 +124,9 @@ const SignupPage = ({ toggleForm }) => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                minLength="6"
+                minLength="8"
                 autoComplete="new-password"
-                placeholder="Create a password"
+                placeholder="Create a strong password"
               />
             </div>
           </Field>

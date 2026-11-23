@@ -1,6 +1,5 @@
 import React, { useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import SafeMarkdown from '../../components/common/SafeMarkdown';
 import { Icon } from '../../components/common/ui';
 import { useChatSession } from './useChatSession';
 
@@ -108,7 +107,7 @@ const AiMarketChatBot = ({ onGetInsights, stockName, activeContext = null }) => 
               <div key={index} className={`chat-row chat-row--compact chat-row--${msg.role}`}>
                 <div className={`chat-bubble-card chat-bubble-card--compact chat-bubble-card--${msg.role}`}>
                   <div className="markdown-body">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                    <SafeMarkdown>{msg.text}</SafeMarkdown>
                   </div>
                 </div>
               </div>

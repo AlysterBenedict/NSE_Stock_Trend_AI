@@ -1,6 +1,17 @@
-"""Centralized configuration and constants for the NeuroStock Global Panel ML backend."""
+"""Centralized configuration, NSE universe definitions, and security settings for NeuroStock."""
 
 import os
+
+from backend.security.sanitizers import validate_llm_url
+
+try:
+    from dotenv import load_dotenv
+
+    _BACKEND_ENV = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.isfile(_BACKEND_ENV):
+        load_dotenv(_BACKEND_ENV, override=False)
+except ImportError:
+    pass
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -9,9 +20,9 @@ MODELS_DIR_LONG_RANGE = os.path.join(MODELS_DIR, "long_range")
 MODELS_DIR_ONE_DAY = os.path.join(MODELS_DIR, "one_day")
 METRICS_SUMMARY_PATH = os.path.join(MODELS_DIR, "metrics_summary.json")
 
-# Sequence & Training Hyperparameters
-LOOKBACK_WINDOW = 60                  # 60 trading days (~3 months) for AttentionNet
-START_DATE = "2005-01-01"             # ~20+ years of history across cycles for low-variance global panel
+# Sequence & Training Hyperparameters (MUST stay aligned with trained model artifacts)
+LOOKBACK_WINDOW = 60
+START_DATE = "2005-01-01"
 FORECAST_HORIZONS = [1, 5, 10, 21, 63]
 LONG_RANGE_HORIZONS = [5, 10, 21, 63]
 TARGET_COLUMN = "Close"
@@ -45,7 +56,7 @@ INDIAN_MACRO_TICKERS = {
     "bank_nifty": "^NSEBANK",
     "it_nifty": "^CNXIT",
 }
-# Global markets close after NSE 3:30 PM IST -> strictly shifted by 1 trading day (zero lookahead!)
+# Global markets close after NSE 3:30 PM IST -> strictly shifted by 1 trading day (zero lookahead)
 GLOBAL_LAGGED_MACRO_TICKERS = {
     "sp500": "^GSPC",
     "us10y": "^TNX",
@@ -55,10 +66,106 @@ GLOBAL_LAGGED_MACRO_TICKERS = {
 }
 MACRO_TICKERS = {**INDIAN_MACRO_TICKERS, **GLOBAL_LAGGED_MACRO_TICKERS}
 
+# Dynamic security & runtime environment helpers
+_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
+
+
+def _parse_bool_env(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in _TRUE_VALUES
+
+
+def get_app_env() -> str:
+    return os.environ.get("APP_ENV", "development").strip().lower() or "development"
+
+
+def get_host() -> str:
+    return os.environ.get("HOST", "127.0.0.1").strip() or "127.0.0.1"
+
+
+def get_port() -> int:
+    raw = os.environ.get("PORT", "5000").strip()
+    try:
+        port = int(raw)
+    except ValueError:
+        return 5000
+    return port if 1 <= port <= 65535 else 5000
+
+
+def get_log_level() -> str:
+    return os.environ.get("LOG_LEVEL", "INFO").strip().upper() or "INFO"
+
+
+def get_firebase_project_id() -> str:
+    return os.environ.get("FIREBASE_PROJECT_ID", "").strip()
+
+
+def is_auth_required() -> bool:
+    raw = os.environ.get("AUTH_REQUIRED")
+    if raw is not None and raw.strip() != "":
+        return raw.strip().lower() in _TRUE_VALUES
+    return get_app_env() == "production" or bool(get_firebase_project_id())
+
+
+def get_allowed_origins() -> list[str]:
+    raw = os.environ.get(
+        "ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
+    )
+    origins = [item.strip().rstrip("/") for item in raw.split(",") if item.strip()]
+    return origins or ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+
+def is_api_docs_enabled() -> bool:
+    return _parse_bool_env("ENABLE_API_DOCS", False)
+
+
+def is_hsts_enabled() -> bool:
+    return _parse_bool_env("ENABLE_HSTS", False)
+
+
+def is_model_integrity_required() -> bool:
+    return _parse_bool_env("VERIFY_MODEL_INTEGRITY", True)
+
+
+def is_proxy_trusted() -> bool:
+    return _parse_bool_env("TRUST_PROXY_HEADERS", False)
+
+
+def get_max_request_body_bytes() -> int:
+    raw = os.environ.get("MAX_REQUEST_BODY_BYTES", "262144").strip()
+    try:
+        size = int(raw)
+    except ValueError:
+        return 262144
+    return max(4096, min(size, 4 * 1024 * 1024))
+
+
+def is_remote_llm_allowed() -> bool:
+    return _parse_bool_env("ALLOW_REMOTE_LLM_URL", False)
+
+
+def get_lm_studio_api_url() -> str:
+    raw = os.environ.get("LM_STUDIO_API_URL", "http://127.0.0.1:1234/v1/chat/completions")
+    return validate_llm_url(raw, allow_remote=is_remote_llm_allowed())
+
+
+def validate_runtime_security_config() -> None:
+    """Enforce fail-closed security invariants before starting the ASGI application."""
+    get_lm_studio_api_url()
+    if get_app_env() == "production":
+        if not is_auth_required():
+            raise RuntimeError("AUTH_REQUIRED cannot be disabled when APP_ENV=production.")
+        if not get_firebase_project_id():
+            raise RuntimeError("FIREBASE_PROJECT_ID must be set when APP_ENV=production.")
+        origins = get_allowed_origins()
+        if "*" in origins:
+            raise RuntimeError("Wildcard '*' CORS origin is forbidden when APP_ENV=production.")
+
+
 # Local LLM (LM Studio) & Financial NLP settings
-LM_STUDIO_API_URL = os.environ.get(
-    "LM_STUDIO_API_URL", "http://127.0.0.1:1234/v1/chat/completions"
-)
+LM_STUDIO_API_URL = get_lm_studio_api_url()
 LOCAL_MODEL_NAME = os.environ.get("LOCAL_MODEL_NAME", "google/gemma-4-26b-a4b")
 FINBERT_MODEL_NAME = os.environ.get("FINBERT_MODEL_NAME", "ProsusAI/finbert")
 
@@ -166,8 +273,9 @@ STOCK_LIST = {
     "Zydus Lifesciences": "ZYDUSLIFE.NS",
 }
 
-# Train the Global Cross-Sectional Panel across ALL 100 NSE stocks (~400,000+ rows)
 TRAINABLE_STOCK_LIST = STOCK_LIST
+VALID_TICKERS = frozenset(STOCK_LIST.values())
+TICKER_TO_NAME = {ticker: name for name, ticker in STOCK_LIST.items()}
 
 # Sector taxonomy for sector-relative excess return factors & neural sector embeddings
 SECTOR_MAP = {
@@ -230,7 +338,6 @@ SECTOR_MAP = {
     "LT.NS": "Infra",
     "LTM.NS": "IT",
     "LUPIN.NS": "Healthcare",
-    "M&M": "Auto",
     "M&M.NS": "Auto",
     "MARICO.NS": "Consumer",
     "MARUTI.NS": "Auto",

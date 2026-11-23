@@ -15,6 +15,7 @@ import {
 import { SENTIMENT_STOCK_OPTIONS } from '../../constants/stocks';
 import { getStockSentiment } from '../../services/apiClient';
 import { formatUnixOrIsoDate, isCancelledError } from '../../utils/formatters';
+import { isSafeHttpUrl } from '../../utils/urlSafety';
 
 const scoreTone = (score) => {
   if (score >= 65) return 'up';
@@ -222,15 +223,21 @@ const NewsSentimentDashboard = () => {
                     return (
                       <article key={idx} className="news-row">
                         <div className="news-row__body">
-                          <a
-                            href={item.link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="news-row__title"
-                          >
-                            <span>{item.title}</span>
-                            <Icon name="open_in_new" size={14} className="news-row__ext" />
-                          </a>
+                          {isSafeHttpUrl(item.link) ? (
+                            <a
+                              href={item.link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="news-row__title"
+                            >
+                              <span>{item.title}</span>
+                              <Icon name="open_in_new" size={14} className="news-row__ext" />
+                            </a>
+                          ) : (
+                            <span className="news-row__title">
+                              <span>{item.title}</span>
+                            </span>
+                          )}
                           <span className="news-row__time">
                             <Icon name="schedule" size={14} />
                             {formatUnixOrIsoDate(item.time)}

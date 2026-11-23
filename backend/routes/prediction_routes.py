@@ -1,107 +1,76 @@
-"""Prediction and historical chart data endpoints."""
+"""Async prediction, historical chart data, and walk-forward backtest endpoints."""
 
-import traceback
-from flask import Blueprint, jsonify, request
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from backend.config import ALGORITHMS, STOCK_LIST
-from backend.services.backtest_service import run_strategy_backtest
-from backend.services.market_data_service import get_historical_chart_data
-from backend.services.prediction_service import (
-    determine_next_business_day_for_ticker,
-    run_prediction_for_algorithm,
-)
+from backend.config import STOCK_LIST
+from backend.schemas import BacktestRequest, PredictRequest
+from backend.security.auth import require_auth
+from backend.security.logging_utils import get_logger
+from backend.security.middleware import rate_limit
+from backend.services.backtest_service import run_strategy_backtest_async
+from backend.services.market_data_service import get_historical_chart_data_async
+from backend.services.prediction_service import predict_async
 
-prediction_bp = Blueprint("prediction", __name__)
+logger = get_logger(__name__)
+
+router = APIRouter(tags=["prediction"])
 
 
-@prediction_bp.route("/predict", methods=["POST"])
-def predict_endpoint():
+@router.post("/predict")
+async def predict_endpoint(
+    payload: PredictRequest,
+    _claims: dict = Depends(require_auth),
+    _rl: None = Depends(rate_limit("predict", limit=25, window_seconds=60)),
+):
     """Handle single-algorithm or multi-algorithm comparison price predictions."""
-    content = request.json or {}
-    stock_name = content.get("stock_name")
-    future_date_str = content.get("future_date")
-    algorithm_name = content.get("algorithm_name")
+    ticker = STOCK_LIST[payload.stock_name]
+    future_date_str = payload.future_date.strftime("%Y-%m-%d")
+    logger.info("Prediction request for %s target=%s algo=%s", ticker, future_date_str, payload.algorithm_name)
 
-    if not all([stock_name, future_date_str, algorithm_name]):
-        return jsonify({"error": "Missing stock_name, future_date, or algorithm_name"}), 400
-
-    ticker = STOCK_LIST.get(stock_name)
-    if not ticker:
-        return jsonify({"error": "Invalid stock_name"}), 400
-
-    try:
-        next_bday_str = determine_next_business_day_for_ticker(ticker)
-        if not next_bday_str:
-            return jsonify({"error": "Could not fetch latest stock data."}), 500
-    except Exception as exc:
-        return jsonify({"error": f"yfinance error: {exc}"}), 500
-
-    if isinstance(algorithm_name, list):
-        print(f"Received comparison request for {ticker} on {future_date_str} using {algorithm_name}")
-        results = {}
-        for algo in algorithm_name:
-            if algo not in ALGORITHMS:
-                results[algo] = {"error": f"Invalid algorithm: {algo}"}
-                continue
-            payload, error = run_prediction_for_algorithm(
-                stock_name, ticker, future_date_str, algo, next_bday_str
-            )
-            results[algo] = {"error": error} if error else payload
-        return jsonify(results)
-
-    if algorithm_name not in ALGORITHMS:
-        return jsonify({"error": "Invalid algorithm_name"}), 400
-
-    print(f"Received prediction request for {ticker} on {future_date_str} using {algorithm_name}")
-    payload, error = run_prediction_for_algorithm(
-        stock_name, ticker, future_date_str, algorithm_name, next_bday_str
+    result, err, status_code = await predict_async(
+        payload.stock_name, ticker, future_date_str, payload.algorithm_name
     )
-    if error:
-        return jsonify({"error": error}), 500
-    return jsonify(payload)
+    if err:
+        raise HTTPException(status_code=status_code, detail=err)
+    return result
 
 
-@prediction_bp.route("/historical-data", methods=["GET"])
-def historical_data_endpoint():
+@router.get("/historical-data")
+async def historical_data_endpoint(
+    stock_name: str = Query(..., min_length=1, max_length=80),
+    _claims: dict = Depends(require_auth),
+    _rl: None = Depends(rate_limit("read", limit=60, window_seconds=60)),
+):
     """Provide 3 years of OHLC, volume, RSI-14, and SMA-50 series for financial charts."""
-    stock_name = request.args.get("stock_name")
-    if not stock_name:
-        return jsonify({"error": "Missing stock_name parameter"}), 400
-
     ticker = STOCK_LIST.get(stock_name)
     if not ticker:
-        return jsonify({"error": "Invalid stock_name"}), 400
+        raise HTTPException(status_code=400, detail="Invalid stock_name")
 
-    print(f"Fetching historical data for {ticker}...")
-    try:
-        chart_data = get_historical_chart_data(ticker)
-        if not chart_data:
-            return jsonify({"error": f"Could not fetch data for {ticker}"}), 500
-        return jsonify(chart_data)
-    except Exception as exc:
-        traceback.print_exc()
-        return jsonify({"error": str(exc)}), 500
+    logger.debug("Fetching historical data for %s", ticker)
+    chart_data = await get_historical_chart_data_async(ticker)
+    if not chart_data:
+        raise HTTPException(status_code=502, detail=f"Could not fetch data for {ticker}")
+    return chart_data
 
 
-@prediction_bp.route("/run-backtest", methods=["POST"])
-def run_backtest_endpoint():
+@router.post("/run-backtest")
+async def run_backtest_endpoint(
+    payload: BacktestRequest,
+    _claims: dict = Depends(require_auth),
+    _rl: None = Depends(rate_limit("heavy", limit=10, window_seconds=60)),
+):
     """Execute non-overlapping walk-forward strategy backtest with NSE cost assumptions."""
-    try:
-        content = request.json or {}
-        result, error_info = run_strategy_backtest(
-            strategy=content.get("strategy", "top_n_long"),
-            horizon=int(content.get("horizon", 21)),
-            algorithm=content.get("algorithm", "Ensemble"),
-            top_n=int(content.get("top_n", 10)),
-            cost_bps=float(content.get("cost_bps", 15.0)),
-            initial_capital=float(content.get("initial_capital", 100000.0)),
-            lookback_months=int(content.get("lookback_months", 24)),
-            stock_name=content.get("stock_name"),
-        )
-        if error_info:
-            msg, status_code = error_info
-            return jsonify({"error": msg}), status_code
-        return jsonify(result)
-    except Exception as exc:
-        traceback.print_exc()
-        return jsonify({"error": str(exc)}), 500
+    result, error_info = await run_strategy_backtest_async(
+        strategy=payload.strategy,
+        horizon=payload.horizon,
+        algorithm=payload.algorithm,
+        top_n=payload.top_n,
+        cost_bps=payload.cost_bps,
+        initial_capital=payload.initial_capital,
+        lookback_months=payload.lookback_months,
+        stock_name=payload.stock_name,
+    )
+    if error_info:
+        msg, status_code = error_info
+        raise HTTPException(status_code=status_code, detail=msg)
+    return result

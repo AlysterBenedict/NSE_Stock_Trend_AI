@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Badge, ChangeBadge, EmptyState, Icon, Loader, PageHeader } from '../../components/common/ui';
+import React, { useMemo, useState } from 'react';
+import { Badge, Callout, ChangeBadge, EmptyState, Icon, Loader, PageHeader } from '../../components/common/ui';
 import { MARKET_CATEGORIES, SECTOR_MAP } from '../../constants/stocks';
-import { getMarketOverview } from '../../services/apiClient';
+import { useMarketData } from '../../context/MarketDataContext';
 import { formatSigned, toneOf } from '../../utils/formatters';
 import LiveTickerTape from './LiveTickerTape';
 import MarketStockGrid from './MarketStockGrid';
@@ -15,36 +15,11 @@ const SORT_OPTIONS = [
 ];
 
 const MarketOverviewDashboard = () => {
-  const [marketData, setMarketData] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { marketData, loading, error } = useMarketData();
   const [selectedStock, setSelectedStock] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [sortBy, setSortBy] = useState('name');
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const fetchMarketData = async () => {
-      try {
-        const data = await getMarketOverview();
-        if (isMounted) {
-          setMarketData(data);
-          setLoading(false);
-        }
-      } catch (error) {
-        console.error('Error fetching market data:', error);
-        if (isMounted) setLoading(false);
-      }
-    };
-
-    fetchMarketData();
-    const interval = setInterval(fetchMarketData, 60000);
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, []);
 
   const summary = useMemo(() => {
     if (!marketData.length) return null;
@@ -241,6 +216,12 @@ const MarketOverviewDashboard = () => {
               })}
             </div>
           </section>
+
+          {error && (
+            <Callout tone="error" icon="error" title="Market Quotes Unavailable">
+              {error}
+            </Callout>
+          )}
 
           {loading ? (
             <div className="card">

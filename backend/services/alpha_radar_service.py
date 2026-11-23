@@ -1,33 +1,20 @@
 """Vectorized 100-Stock Global Panel Alpha Radar, Sector Rotation Quadrant & Macro Regime service."""
 
-import threading
-import time
 import numpy as np
 import pandas as pd
-import torch
 
-from backend.config import (
-    BASE_ALGORITHMS,
-    FORECAST_HORIZONS,
-    LOOKBACK_WINDOW,
-    SECTORS,
-    SECTOR_MAP,
-    SECTOR_TO_ID,
-    SORTED_TICKERS,
-    STOCK_LIST,
-    TICKER_TO_ID,
-)
-from backend.services.feature_engineering import FEATURE_COLUMNS, get_live_universe_panel
+from backend.config import FORECAST_HORIZONS, SECTOR_MAP, STOCK_LIST
+from backend.services.feature_engineering import get_live_universe_panel, get_live_universe_panel_async
 from backend.services.model_registry import registry
+from backend.services.prediction_service import batch_score_universe_horizon
+from backend.services.runtime import AsyncSingleflightCache, runtime
 
-_RADAR_CACHE = {}
-_RADAR_LOCK = threading.Lock()
-_RADAR_TTL_SECONDS = 300
-
-_FALLBACK_HORIZON_ORDER = [21, 5, 10, 63, 1]
+_RADAR_SINGLEFLIGHT = AsyncSingleflightCache(
+    maxsize=16, default_ttl=300.0, min_refresh_interval=60.0
+)
 
 
-def _safe_float(val, default=0.0, digits=None):
+def _safe_float(val, default: float = 0.0, digits: int | None = None) -> float:
     """Return a finite JSON-safe float."""
     try:
         num = float(val)
@@ -38,7 +25,7 @@ def _safe_float(val, default=0.0, digits=None):
     return round(num, digits) if digits is not None else num
 
 
-def _resolve_active_horizon(requested_horizon):
+def _resolve_active_horizon(requested_horizon: int) -> tuple[int, list[int]]:
     """Resolve requested horizon if loaded, else fall back cleanly to nearest available horizon."""
     available = [h for h in FORECAST_HORIZONS if registry.get_bundle(h) is not None]
     if requested_horizon in available:
@@ -49,7 +36,7 @@ def _resolve_active_horizon(requested_horizon):
     return requested_horizon, []
 
 
-def _classify_macro_regime(latest_df):
+def _classify_macro_regime(latest_df: pd.DataFrame) -> dict:
     """Derive Indian + lagged Global Macro Regime summary from the live cross-sectional panel."""
     if latest_df.empty:
         return {
@@ -66,7 +53,7 @@ def _classify_macro_regime(latest_df):
             "sp500_5d_pct": 0.0,
         }
 
-    def _med(col, default=0.0):
+    def _med(col: str, default: float = 0.0) -> float:
         if col not in latest_df.columns:
             return default
         vals = pd.to_numeric(latest_df[col], errors="coerce").dropna()
@@ -110,139 +97,22 @@ def _classify_macro_regime(latest_df):
     }
 
 
-def _batch_score_stocks(panel_df, horizon):
-    """Run single vectorized batch pass across all tracked NSE stocks for the given horizon."""
+def _batch_score_stocks(panel_df: pd.DataFrame, horizon: int):
+    """Run vectorized batch scoring via shared prediction_service helper and format leaderboard rows."""
+    batch = batch_score_universe_horizon(panel_df, horizon)
+    ordered_tickers = batch["tickers"]
+    latest_df = batch["latest_df"]
+    models_ready = batch["models_ready"]
+    if not ordered_tickers:
+        return [], latest_df, models_ready
+
     ticker_to_name = {t: name for name, t in STOCK_LIST.items()}
-    grouped = {t: grp.sort_values("date") for t, grp in panel_df.groupby("ticker")}
-
-    ordered_tickers = [t for t in sorted(grouped.keys()) if len(grouped[t]) >= LOOKBACK_WINDOW]
-    if not ordered_tickers:
-        ordered_tickers = sorted(grouped.keys())
-    if not ordered_tickers:
-        return [], pd.DataFrame(), False
-
-    latest_rows = [grouped[t].iloc[-1] for t in ordered_tickers]
-    latest_df = pd.DataFrame(latest_rows).reset_index(drop=True)
-
-    bundle = registry.get_bundle(horizon)
-    models_ready = bundle is not None
-
-    n_stocks = len(ordered_tickers)
-    pred_log_ret = np.zeros(n_stocks, dtype=np.float64)
-    low_log_ret = np.zeros(n_stocks, dtype=np.float64)
-    high_log_ret = np.zeros(n_stocks, dtype=np.float64)
-    bullish_counts = np.zeros(n_stocks, dtype=int)
-    total_model_count = 0
-
-    recent_vols = np.clip(np.nan_to_num(latest_df["vol_21d"].astype(float).values, nan=0.018), 0.006, 0.10)
-    vol_scales = recent_vols * np.sqrt(float(horizon))
-
-    if models_ready:
-        scaler = bundle["scaler"]
-        models = bundle["models"]
-        calibrators = bundle.get("calibrators", {})
-        ens_meta = bundle.get("ensemble") or {}
-        metadata = bundle.get("metadata", {})
-
-        feat_cols = metadata.get("feature_columns", FEATURE_COLUMNS)
-        selected_idx = metadata.get("selected_feature_indices")
-        use_entity_ids = metadata.get("use_entity_ids", True)
-        market_drift_ret = float(metadata.get("market_drift_ret", 0.0))
-
-        # 1. Build batched tabular input (N, F_tab) & sequence tensor (N, LOOKBACK_WINDOW, F_sel)
-        latest_scaled = np.clip(
-            scaler.transform(latest_df[feat_cols].values.astype(np.float64)), -8.0, 8.0
-        )
-        latest_sel = latest_scaled[:, selected_idx] if selected_idx is not None else latest_scaled
-
-        if use_entity_ids:
-            stock_ids = np.array([TICKER_TO_ID.get(t, len(TICKER_TO_ID)) for t in ordered_tickers], dtype=np.int64)
-            sector_ids = np.array(
-                [SECTOR_TO_ID.get(SECTOR_MAP.get(t, "Other"), SECTOR_TO_ID["Other"]) for t in ordered_tickers],
-                dtype=np.int64,
-            )
-            x_tab = np.hstack([latest_sel, stock_ids[:, None].astype(np.float64), sector_ids[:, None].astype(np.float64)])
-        else:
-            stock_ids = np.full(n_stocks, len(SORTED_TICKERS) + 2, dtype=np.int64)
-            sector_ids = np.full(n_stocks, len(SECTORS) + 2, dtype=np.int64)
-            x_tab = latest_sel
-
-        # Batched sequence tensor for AttentionNet (only when every ticker has >= LOOKBACK_WINDOW rows)
-        seq_list = []
-        valid_seq_mask = []
-        for t in ordered_tickers:
-            sub = grouped[t]
-            if len(sub) >= LOOKBACK_WINDOW:
-                s_mat = np.clip(
-                    scaler.transform(sub.tail(LOOKBACK_WINDOW)[feat_cols].values.astype(np.float64)), -8.0, 8.0
-                )
-                s_sel = s_mat[:, selected_idx] if selected_idx is not None else s_mat
-                seq_list.append(s_sel.astype(np.float32))
-                valid_seq_mask.append(True)
-            else:
-                seq_list.append(np.zeros((LOOKBACK_WINDOW, latest_sel.shape[1]), dtype=np.float32))
-                valid_seq_mask.append(False)
-
-        x_seq = np.stack(seq_list, axis=0)
-        valid_seq_arr = np.asarray(valid_seq_mask, dtype=bool)
-
-        cal_z_by_algo = {}
-        for algo in BASE_ALGORITHMS:
-            model_list = models.get(algo)
-            if not model_list:
-                continue
-
-            if algo == "AttentionNet":
-                raw_z = np.zeros(n_stocks, dtype=np.float64)
-                if np.any(valid_seq_arr):
-                    x_t = torch.tensor(x_seq[valid_seq_arr], dtype=torch.float32, device=registry.device)
-                    s_t = torch.tensor(stock_ids[valid_seq_arr], dtype=torch.long, device=registry.device)
-                    sec_t = torch.tensor(sector_ids[valid_seq_arr], dtype=torch.long, device=registry.device)
-                    bag_preds = []
-                    with torch.no_grad():
-                        for m in model_list:
-                            bag_preds.append(m(x_t, s_t, sec_t).detach().cpu().numpy().reshape(-1))
-                    raw_z[valid_seq_arr] = np.mean(bag_preds, axis=0)
-            else:
-                bag_preds = [np.asarray(m.predict(x_tab), dtype=np.float64).reshape(-1) for m in model_list]
-                raw_z = np.mean(bag_preds, axis=0)
-
-            cal = calibrators.get(algo, {})
-            center = float(cal.get("center", 0.0))
-            bias = float(cal.get("bias", 0.0))
-            gamma = float(cal.get("gamma", 1.0))
-            cal_z = bias + gamma * (raw_z - center)
-            cal_z_by_algo[algo] = cal_z
-
-            algo_ret = market_drift_ret + np.clip(cal_z, -3.0, 3.0) * vol_scales
-            bullish_counts += (algo_ret >= 0).astype(int)
-            total_model_count += 1
-
-        # Ensemble prediction
-        ens_z = np.full(n_stocks, float(ens_meta.get("intercept", 0.0)), dtype=np.float64)
-        for base_algo, weight in zip(ens_meta.get("base_models", []), ens_meta.get("weights", [])):
-            if base_algo in cal_z_by_algo:
-                ens_z += float(weight) * np.nan_to_num(cal_z_by_algo[base_algo], nan=0.0)
-
-        ens_z = np.clip(ens_z, -3.0, 3.0)
-        max_ret_cap = 0.15 if horizon == 1 else np.minimum(0.75, 3.5 * vol_scales)
-        pred_log_ret = np.clip(market_drift_ret + ens_z * vol_scales, -max_ret_cap, max_ret_cap)
-
-        # Quantile P10 / P90 uncertainty cones
-        quantiles = bundle.get("quantiles", {})
-        if "q10" in quantiles and "q90" in quantiles:
-            q10_z = np.asarray(quantiles["q10"].predict(x_tab), dtype=np.float64).reshape(-1)
-            q90_z = np.asarray(quantiles["q90"].predict(x_tab), dtype=np.float64).reshape(-1)
-            low_log_ret = np.minimum(q10_z * vol_scales, pred_log_ret - 0.5 * vol_scales)
-            high_log_ret = np.maximum(q90_z * vol_scales, pred_log_ret + 0.5 * vol_scales)
-        else:
-            low_log_ret = pred_log_ret - 1.645 * vol_scales
-            high_log_ret = pred_log_ret + 1.645 * vol_scales
-    else:
-        # Factor-based fallback when models haven't been trained yet
-        pred_log_ret = latest_df.get("cs_rank_sharpe_mom_252d", pd.Series(0.0, index=latest_df.index)).values * vol_scales * 0.2
-        low_log_ret = pred_log_ret - 1.645 * vol_scales
-        high_log_ret = pred_log_ret + 1.645 * vol_scales
+    pred_log_ret = batch["pred_log_ret"]
+    low_log_ret = batch["low_log_ret"]
+    high_log_ret = batch["high_log_ret"]
+    bullish_counts = batch["bullish_counts"]
+    total_model_count = batch["total_model_count"]
+    recent_vols = batch["recent_vols"]
 
     stocks_out = []
     for i, ticker in enumerate(ordered_tickers):
@@ -302,12 +172,12 @@ def _batch_score_stocks(panel_df, horizon):
     return stocks_out, latest_df, models_ready
 
 
-def _build_sector_rotation(stocks_out, latest_df):
+def _build_sector_rotation(stocks_out: list[dict], latest_df: pd.DataFrame) -> list[dict]:
     """Aggregate 21d/63d sector momentum & AI forecasts into RRG-style quadrants."""
     if not stocks_out:
         return []
 
-    sec_stats = {}
+    sec_stats: dict[str, dict] = {}
     for s in stocks_out:
         sec = s["sector"]
         entry = sec_stats.setdefault(sec, {"stocks": [], "rets": [], "days": []})
@@ -315,7 +185,6 @@ def _build_sector_rotation(stocks_out, latest_df):
         entry["rets"].append(s["predicted_return_pct"])
         entry["days"].append(s["day_change_pct"])
 
-    # Extract empirical 21d & 63d sector momentum from panel if present
     panel_sec_mom = {}
     if not latest_df.empty and "sector" in latest_df.columns:
         for sec, grp in latest_df.groupby("sector"):
@@ -357,8 +226,44 @@ def _build_sector_rotation(stocks_out, latest_df):
     return sectors_out
 
 
-def get_alpha_radar(horizon=21, force_refresh=False):
-    """Return vectorized NSE 100 Alpha Radar leaderboard, Sector Rotation quadrant, and Macro Regime."""
+def _assemble_alpha_radar(panel_df: pd.DataFrame | None, req_horizon: int, active_horizon: int, available_horizons: list[int]) -> dict:
+    if panel_df is None or panel_df.empty:
+        return {
+            "requested_horizon": req_horizon,
+            "active_horizon": active_horizon,
+            "available_horizons": available_horizons,
+            "models_ready": len(available_horizons) > 0,
+            "as_of": None,
+            "macro_regime": _classify_macro_regime(pd.DataFrame()),
+            "sectors": [],
+            "stocks": [],
+        }
+
+    stocks_out, latest_df, models_ready = _batch_score_stocks(panel_df, active_horizon)
+    sectors_out = _build_sector_rotation(stocks_out, latest_df)
+    macro_regime = _classify_macro_regime(latest_df)
+
+    as_of = None
+    if not latest_df.empty and "date" in latest_df.columns:
+        try:
+            as_of = pd.Timestamp(latest_df["date"].max()).strftime("%Y-%m-%d")
+        except Exception:
+            as_of = None
+
+    return {
+        "requested_horizon": req_horizon,
+        "active_horizon": active_horizon,
+        "available_horizons": available_horizons,
+        "models_ready": models_ready,
+        "as_of": as_of,
+        "macro_regime": macro_regime,
+        "sectors": sectors_out,
+        "stocks": stocks_out,
+    }
+
+
+async def get_alpha_radar_async(horizon: int = 21, force_refresh: bool = False) -> dict:
+    """Async cached & singleflight Alpha Radar computation."""
     try:
         req_horizon = int(horizon)
     except Exception:
@@ -367,51 +272,27 @@ def get_alpha_radar(horizon=21, force_refresh=False):
     active_horizon, available_horizons = _resolve_active_horizon(req_horizon)
     cache_key = (active_horizon, len(available_horizons))
 
-    now = time.time()
-    if not force_refresh:
-        cached = _RADAR_CACHE.get(cache_key)
-        if cached and (now - cached["ts"]) < _RADAR_TTL_SECONDS:
-            return cached["data"]
+    async def _compute():
+        panel_df, _, _ = await get_live_universe_panel_async(force_refresh=force_refresh)
+        return await runtime.run_cpu(
+            _assemble_alpha_radar, panel_df, req_horizon, active_horizon, available_horizons
+        )
 
-    with _RADAR_LOCK:
-        if not force_refresh:
-            cached = _RADAR_CACHE.get(cache_key)
-            if cached and (time.time() - cached["ts"]) < _RADAR_TTL_SECONDS:
-                return cached["data"]
+    return await _RADAR_SINGLEFLIGHT.get_or_compute(
+        key=cache_key,
+        factory=_compute,
+        ttl=300.0,
+        force_refresh=force_refresh,
+        stale_on_error=True,
+    )
 
-        panel_df, _, _ = get_live_universe_panel(force_refresh=force_refresh)
-        if panel_df is None or panel_df.empty:
-            return {
-                "requested_horizon": req_horizon,
-                "active_horizon": active_horizon,
-                "available_horizons": available_horizons,
-                "models_ready": len(available_horizons) > 0,
-                "as_of": None,
-                "macro_regime": _classify_macro_regime(pd.DataFrame()),
-                "sectors": [],
-                "stocks": [],
-            }
 
-        stocks_out, latest_df, models_ready = _batch_score_stocks(panel_df, active_horizon)
-        sectors_out = _build_sector_rotation(stocks_out, latest_df)
-        macro_regime = _classify_macro_regime(latest_df)
-
-        as_of = None
-        if not latest_df.empty and "date" in latest_df.columns:
-            try:
-                as_of = pd.Timestamp(latest_df["date"].max()).strftime("%Y-%m-%d")
-            except Exception:
-                as_of = None
-
-        payload = {
-            "requested_horizon": req_horizon,
-            "active_horizon": active_horizon,
-            "available_horizons": available_horizons,
-            "models_ready": models_ready,
-            "as_of": as_of,
-            "macro_regime": macro_regime,
-            "sectors": sectors_out,
-            "stocks": stocks_out,
-        }
-        _RADAR_CACHE[cache_key] = {"ts": time.time(), "data": payload}
-        return payload
+def get_alpha_radar(horizon: int = 21, force_refresh: bool = False) -> dict:
+    """Synchronous helper for standalone scripts."""
+    try:
+        req_horizon = int(horizon)
+    except Exception:
+        req_horizon = 21
+    active_horizon, available_horizons = _resolve_active_horizon(req_horizon)
+    panel_df, _, _ = get_live_universe_panel(force_refresh=force_refresh)
+    return _assemble_alpha_radar(panel_df, req_horizon, active_horizon, available_horizons)

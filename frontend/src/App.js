@@ -1,9 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import CommandPalette from './components/common/CommandPalette';
+import ErrorBoundary from './components/common/ErrorBoundary';
 import WatchlistDrawer from './components/common/WatchlistDrawer';
 import { Icon, Loader } from './components/common/ui';
 import AppFooter from './components/layout/AppFooter';
 import AppHeader from './components/layout/AppHeader';
+import { MarketDataProvider } from './context/MarketDataContext';
 import { useTheme } from './context/ThemeContext';
 import { WatchlistProvider, useWatchlist } from './context/WatchlistContext';
 import AiMarketChatBot from './features/assistant/AiMarketChatBot';
@@ -12,8 +14,8 @@ import LoginPage from './features/auth/LoginPage';
 import SignupPage from './features/auth/SignupPage';
 import AiInvestmentEngine from './features/investment/AiInvestmentEngine';
 import PortfolioReturnCalculator from './features/investment/PortfolioReturnCalculator';
-import MarketOverviewDashboard from './features/market/MarketOverviewDashboard';
 import AlphaRadarDashboard from './features/market/AlphaRadarDashboard';
+import MarketOverviewDashboard from './features/market/MarketOverviewDashboard';
 import OpenPositionsDashboard from './features/market/OpenPositionsDashboard';
 import BacktestLabDashboard from './features/prediction/BacktestLabDashboard';
 import FiftyTwoWeekDashboard from './features/prediction/FiftyTwoWeekDashboard';
@@ -65,6 +67,7 @@ function AppWorkspace({ user, authLoading }) {
   const [predictionResult, setPredictionResult] = useState({});
   const [authForm, setAuthForm] = useState('login');
   const [activeTab, setActiveTab] = useState('market');
+  const [visitedTabs, setVisitedTabs] = useState(() => new Set(['market']));
   const [cmdOpen, setCmdOpen] = useState(false);
   const [watchlistOpen, setWatchlistOpen] = useState(false);
   const [tabResetKeys, setTabResetKeys] = useState({
@@ -102,11 +105,23 @@ function AppWorkspace({ user, authLoading }) {
   const predAbortRef = useRef(null);
   const compAbortRef = useRef(null);
 
+  const navigateToTab = useCallback((nextTab) => {
+    setActiveTab(nextTab);
+    setVisitedTabs((prev) => {
+      if (prev.has(nextTab)) return prev;
+      const next = new Set(prev);
+      next.add(nextTab);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     if (user) {
       setPredictionResult({});
       setError(null);
       setAuthForm('login');
+      setVisitedTabs(new Set(['market']));
+      setActiveTab('market');
     }
   }, [user]);
 
@@ -127,8 +142,7 @@ function AppWorkspace({ user, authLoading }) {
       await signOut(auth);
       setPredictionResult({});
       setError(null);
-    } catch (err) {
-      console.error('Logout failed:', err);
+    } catch {
       setError('Logout failed. Please try again.');
     }
   };
@@ -154,7 +168,6 @@ function AppWorkspace({ user, authLoading }) {
       setPredictionResult(data);
     } catch (err) {
       if (controller.signal.aborted || isCancelledError(err)) return;
-      console.error('Prediction failed:', err);
       setError(err.response?.data?.error || 'Prediction request failed.');
       setPredictionResult({});
     } finally {
@@ -183,14 +196,17 @@ function AppWorkspace({ user, authLoading }) {
         controller.signal
       );
       if (controller.signal.aborted) return;
-      setCompResult1(results[algo1].error ? {} : results[algo1]);
-      setCompResult2(results[algo2].error ? {} : results[algo2]);
-      if (results[algo1].error && results[algo2].error) {
-        setCompError(`Both algorithms failed: ${results[algo1].error} / ${results[algo2].error}`);
+      const r1 = results?.[algo1];
+      const r2 = results?.[algo2];
+      setCompResult1(r1 && !r1.error ? r1 : {});
+      setCompResult2(r2 && !r2.error ? r2 : {});
+      if ((!r1 || r1.error) && (!r2 || r2.error)) {
+        setCompError(
+          `Both algorithms failed: ${r1?.error || 'Unavailable'} / ${r2?.error || 'Unavailable'}`
+        );
       }
     } catch (err) {
       if (controller.signal.aborted || isCancelledError(err)) return;
-      console.error('Comparison failed:', err);
       setCompError(
         err.response?.data?.error || 'Comparison request failed. Please check inputs or try again.'
       );
@@ -240,13 +256,13 @@ function AppWorkspace({ user, authLoading }) {
     setStock(selectedStock);
     setPredictionResult({});
     setError(null);
-    setActiveTab('home');
+    navigateToTab('home');
   };
 
   const handleAddToOptimizer = (stocksList) => {
     if (!Array.isArray(stocksList) || stocksList.length < 2) return;
     setOptimizerSeedStocks(stocksList);
-    setActiveTab('portfolio');
+    navigateToTab('portfolio');
   };
 
   const handleResetCurrentTab = () => {
@@ -307,7 +323,7 @@ function AppWorkspace({ user, authLoading }) {
         onLogout={handleLogout}
         tabGroups={TAB_GROUPS}
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={navigateToTab}
         onOpenCommandPalette={() => setCmdOpen(true)}
         onOpenWatchlist={() => setWatchlistOpen(true)}
         watchlistCount={watchlistItems.length}
@@ -336,77 +352,101 @@ function AppWorkspace({ user, authLoading }) {
             </button>
           </div>
 
-          <div key={`market-${tabResetKeys.market}`} style={{ display: activeTab === 'market' ? 'block' : 'none', width: '100%' }}>
-            <MarketOverviewDashboard />
-          </div>
+          <ErrorBoundary onReset={handleResetCurrentTab}>
+            {visitedTabs.has('market') && (
+              <div key={`market-${tabResetKeys.market}`} style={{ display: activeTab === 'market' ? 'block' : 'none', width: '100%' }}>
+                <MarketOverviewDashboard />
+              </div>
+            )}
 
-          <div key={`alphaRadar-${tabResetKeys.alphaRadar}`} style={{ display: activeTab === 'alphaRadar' ? 'block' : 'none', width: '100%' }}>
-            <AlphaRadarDashboard
-              onJumpToForecast={handleJumpToForecast}
-              onAddToOptimizer={handleAddToOptimizer}
-            />
-          </div>
+            {visitedTabs.has('alphaRadar') && (
+              <div key={`alphaRadar-${tabResetKeys.alphaRadar}`} style={{ display: activeTab === 'alphaRadar' ? 'block' : 'none', width: '100%' }}>
+                <AlphaRadarDashboard
+                  onJumpToForecast={handleJumpToForecast}
+                  onAddToOptimizer={handleAddToOptimizer}
+                />
+              </div>
+            )}
 
-          <div key={`positions-${tabResetKeys.positions}`} style={{ display: activeTab === 'positions' ? 'block' : 'none', width: '100%' }}>
-            <OpenPositionsDashboard />
-          </div>
+            {visitedTabs.has('positions') && (
+              <div key={`positions-${tabResetKeys.positions}`} style={{ display: activeTab === 'positions' ? 'block' : 'none', width: '100%' }}>
+                <OpenPositionsDashboard />
+              </div>
+            )}
 
-          <div key={`home-${tabResetKeys.home}`} style={{ display: activeTab === 'home' ? 'block' : 'none', width: '100%' }}>
-            <PredictionDashboard
-              onPredict={handlePrediction}
-              isLoading={isLoading}
-              stock={stock}
-              setStock={setStock}
-              algorithm={algorithm}
-              setAlgorithm={setAlgorithm}
-              date={date}
-              setDate={setDate}
-              predictionResult={predictionResult}
-              error={error}
-            />
-          </div>
+            {visitedTabs.has('home') && (
+              <div key={`home-${tabResetKeys.home}`} style={{ display: activeTab === 'home' ? 'block' : 'none', width: '100%' }}>
+                <PredictionDashboard
+                  onPredict={handlePrediction}
+                  isLoading={isLoading}
+                  stock={stock}
+                  setStock={setStock}
+                  algorithm={algorithm}
+                  setAlgorithm={setAlgorithm}
+                  date={date}
+                  setDate={setDate}
+                  predictionResult={predictionResult}
+                  error={error}
+                />
+              </div>
+            )}
 
-          <div key={`comparison-${tabResetKeys.comparison}`} style={{ display: activeTab === 'comparison' ? 'block' : 'none', width: '100%' }}>
-            <ModelComparisonDashboard
-              onPredict={handleComparisonPredict}
-              isLoading={compLoading}
-              stock={compStock}
-              setStock={setCompStock}
-              algo1={compAlgo1}
-              setAlgo1={setCompAlgo1}
-              algo2={compAlgo2}
-              setAlgo2={setCompAlgo2}
-              date={compDate}
-              setDate={setCompDate}
-              result1={compResult1}
-              result2={compResult2}
-              error={compError}
-            />
-          </div>
+            {visitedTabs.has('comparison') && (
+              <div key={`comparison-${tabResetKeys.comparison}`} style={{ display: activeTab === 'comparison' ? 'block' : 'none', width: '100%' }}>
+                <ModelComparisonDashboard
+                  onPredict={handleComparisonPredict}
+                  isLoading={compLoading}
+                  stock={compStock}
+                  setStock={setCompStock}
+                  algo1={compAlgo1}
+                  setAlgo1={setCompAlgo1}
+                  algo2={compAlgo2}
+                  setAlgo2={setCompAlgo2}
+                  date={compDate}
+                  setDate={setCompDate}
+                  result1={compResult1}
+                  result2={compResult2}
+                  error={compError}
+                />
+              </div>
+            )}
 
-          <div key={`fiftyTwoWeek-${tabResetKeys.fiftyTwoWeek}`} style={{ display: activeTab === 'fiftyTwoWeek' ? 'block' : 'none', width: '100%' }}>
-            <FiftyTwoWeekDashboard stock={fiftyTwoWeekStock} setStock={setFiftyTwoWeekStock} />
-          </div>
+            {visitedTabs.has('fiftyTwoWeek') && (
+              <div key={`fiftyTwoWeek-${tabResetKeys.fiftyTwoWeek}`} style={{ display: activeTab === 'fiftyTwoWeek' ? 'block' : 'none', width: '100%' }}>
+                <FiftyTwoWeekDashboard stock={fiftyTwoWeekStock} setStock={setFiftyTwoWeekStock} />
+              </div>
+            )}
 
-          <div key={`backtest-${tabResetKeys.backtest}`} style={{ display: activeTab === 'backtest' ? 'block' : 'none', width: '100%' }}>
-            <BacktestLabDashboard />
-          </div>
+            {visitedTabs.has('backtest') && (
+              <div key={`backtest-${tabResetKeys.backtest}`} style={{ display: activeTab === 'backtest' ? 'block' : 'none', width: '100%' }}>
+                <BacktestLabDashboard />
+              </div>
+            )}
 
-          <div key={`investment-${tabResetKeys.investment}`} style={{ display: activeTab === 'investment' ? 'block' : 'none', width: '100%' }}>
-            <AiInvestmentEngine />
-          </div>
+            {visitedTabs.has('investment') && (
+              <div key={`investment-${tabResetKeys.investment}`} style={{ display: activeTab === 'investment' ? 'block' : 'none', width: '100%' }}>
+                <AiInvestmentEngine />
+              </div>
+            )}
 
-          <div key={`portfolio-${tabResetKeys.portfolio}`} style={{ display: activeTab === 'portfolio' ? 'block' : 'none', width: '100%' }}>
-            <PortfolioReturnCalculator seedStocks={optimizerSeedStocks} />
-          </div>
+            {visitedTabs.has('portfolio') && (
+              <div key={`portfolio-${tabResetKeys.portfolio}`} style={{ display: activeTab === 'portfolio' ? 'block' : 'none', width: '100%' }}>
+                <PortfolioReturnCalculator seedStocks={optimizerSeedStocks} />
+              </div>
+            )}
 
-          <div key={`sentiment-${tabResetKeys.sentiment}`} style={{ display: activeTab === 'sentiment' ? 'block' : 'none', width: '100%' }}>
-            <NewsSentimentDashboard />
-          </div>
+            {visitedTabs.has('sentiment') && (
+              <div key={`sentiment-${tabResetKeys.sentiment}`} style={{ display: activeTab === 'sentiment' ? 'block' : 'none', width: '100%' }}>
+                <NewsSentimentDashboard />
+              </div>
+            )}
 
-          <div key={`education-${tabResetKeys.education}`} style={{ display: activeTab === 'education' ? 'block' : 'none', width: '100%' }}>
-            <FinancialEducationTutor />
-          </div>
+            {visitedTabs.has('education') && (
+              <div key={`education-${tabResetKeys.education}`} style={{ display: activeTab === 'education' ? 'block' : 'none', width: '100%' }}>
+                <FinancialEducationTutor />
+              </div>
+            )}
+          </ErrorBoundary>
         </main>
       )}
 
@@ -430,7 +470,7 @@ function AppWorkspace({ user, authLoading }) {
             isOpen={cmdOpen}
             onClose={() => setCmdOpen(false)}
             tabGroups={TAB_GROUPS}
-            onSelectTab={setActiveTab}
+            onSelectTab={navigateToTab}
             onSelectStockForecast={handleJumpToForecast}
             onToggleTheme={toggleTheme}
             onOpenWatchlist={() => setWatchlistOpen(true)}
@@ -462,7 +502,9 @@ function App() {
 
   return (
     <WatchlistProvider userKey={user?.uid || user?.email || 'guest'}>
-      <AppWorkspace user={user} authLoading={authLoading} />
+      <MarketDataProvider enabled={Boolean(user)}>
+        <AppWorkspace user={user} authLoading={authLoading} />
+      </MarketDataProvider>
     </WatchlistProvider>
   );
 }

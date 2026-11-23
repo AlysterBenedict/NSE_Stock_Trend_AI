@@ -1,25 +1,42 @@
 """Institutional portfolio projection using 10,000-path GARCH(1,1) Student-t Monte Carlo."""
 
 from datetime import datetime, timedelta
+import math
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
 from backend.config import DEFAULT_ALGORITHM, SECTOR_MAP
-from backend.services.feature_engineering import get_live_universe_panel
-from backend.services.market_data_service import fetch_stock_data, resolve_ticker
+from backend.services.feature_engineering import get_live_universe_panel, get_live_universe_panel_async
+from backend.services.market_data_service import (
+    fetch_stock_data,
+    resolve_ticker,
+    resolve_ticker_async,
+)
 from backend.services.model_registry import registry
 from backend.services.prediction_service import make_long_range_prediction
+from backend.services.runtime import runtime
 
 NUM_SIMULATION_PATHS = 10000
 RISK_FREE_RATE_ANNUAL = 0.068  # India 10Y G-Sec / T-bill proxy (~6.8%)
 EQUITY_PRIOR_DRIFT_ANNUAL = 0.115  # Long-term NSE Nifty equity prior (~11.5%)
 
 
-def _fit_garch_parameters(log_returns):
-    """Fit GARCH(1,1) with Student-t innovations; gracefully fall back to EWMA + fat-tail t(df=6)."""
+def _sf(val, default: float = 0.0, digits: int | None = None) -> float:
+    try:
+        n = float(val)
+        if not np.isfinite(n):
+            n = float(default)
+    except Exception:
+        n = float(default)
+    return round(n, digits) if digits is not None else n
+
+
+def _fit_garch_parameters(log_returns: pd.Series) -> dict:
+    """Fit GARCH(1,1) with Student-t innovations; fall back cleanly to EWMA + fat-tail t(df=6)."""
     pct_returns = log_returns.values * 100.0
-    sample_var = float(np.var(pct_returns))
+    sample_var = max(float(np.var(pct_returns)), 1e-6)
     fallback = {
         "omega": 0.05 * sample_var,
         "alpha": 0.08,
@@ -38,7 +55,6 @@ def _fit_garch_parameters(log_returns):
         omega = max(float(params.get("omega", fallback["omega"])), 1e-6)
         alpha = float(np.clip(params.get("alpha[1]", 0.08), 0.01, 0.35))
         beta = float(np.clip(params.get("beta[1]", 0.85), 0.50, 0.96))
-        # Ensure covariance stationarity (alpha + beta < 0.99)
         if alpha + beta >= 0.99:
             scale = 0.985 / (alpha + beta)
             alpha *= scale
@@ -57,9 +73,25 @@ def _fit_garch_parameters(log_returns):
         return fallback
 
 
-def calculate_portfolio_projection(stock_name, principal, future_date_str):
+def calculate_portfolio_projection(
+    stock_name: str, principal: float, future_date_str: str, resolved_ticker: str | None = None
+):
     """Simulate 10,000 GARCH(1,1)-t Monte Carlo paths and compute P10/P50/P90 & institutional risk metrics."""
-    _, ticker = resolve_ticker(stock_name)
+    if not math.isfinite(float(principal)) or float(principal) <= 0.0:
+        return None, ("Principal must be a finite positive amount.", 400)
+
+    try:
+        future_date = datetime.strptime(future_date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return None, ("Invalid future_date format. Expected YYYY-MM-DD.", 400)
+
+    today = datetime.now().date()
+    if future_date <= today:
+        return None, ("Future date must be in the future.", 400)
+
+    ticker = resolved_ticker
+    if not ticker:
+        _, ticker = resolve_ticker(stock_name)
     if not ticker:
         return None, ("Stock not found.", 404)
 
@@ -67,23 +99,20 @@ def calculate_portfolio_projection(stock_name, principal, future_date_str):
     if hist_data is None or len(hist_data) < 60:
         return None, ("Not enough historical data.", 404)
 
-    future_date = datetime.strptime(future_date_str, "%Y-%m-%d").date()
-    today = datetime.now().date()
-    if future_date <= today:
-        return None, ("Future date must be in the future.", 400)
-
     calendar_days = min((future_date - today).days, 365)
     trading_steps = max(1, int(round(calendar_days * (252.0 / 365.0))))
 
     close = hist_data["Close"].astype(float)
     current_price = float(close.iloc[-1])
+    if not math.isfinite(current_price) or current_price <= 0.0:
+        return None, ("Invalid latest closing price for selected stock.", 404)
+
     units_bought = principal / current_price
 
     log_returns = np.log(close / close.shift(1)).dropna()
     sample_mu_daily = float(log_returns.mean())
     sample_sigma_daily = float(log_returns.std())
 
-    # James-Stein / Bayesian shrinkage of noisy sample drift toward long-term NSE equity prior
     prior_mu_daily = np.log(1.0 + EQUITY_PRIOR_DRIFT_ANNUAL) / 252.0
     sample_years = len(log_returns) / 252.0
     shrinkage_weight = min(0.65, sample_years / (sample_years + 4.0))
@@ -94,9 +123,8 @@ def calculate_portfolio_projection(stock_name, principal, future_date_str):
     garch = _fit_garch_parameters(log_returns)
     omega, alpha, beta, nu = garch["omega"], garch["alpha"], garch["beta"], garch["nu"]
 
-    # Vectorized 10,000-path GARCH(1,1) Student-t simulation
     rng = np.random.default_rng(seed=2026)
-    t_scale = np.sqrt((nu - 2.0) / nu)  # Unit-variance standardized Student-t shocks
+    t_scale = np.sqrt((nu - 2.0) / nu)
     z = rng.standard_t(df=nu, size=(trading_steps, NUM_SIMULATION_PATHS)) * t_scale
 
     var_t = np.full(NUM_SIMULATION_PATHS, garch["last_var"], dtype=np.float64)
@@ -105,12 +133,10 @@ def calculate_portfolio_projection(stock_name, principal, future_date_str):
     for step in range(trading_steps):
         sigma_pct = np.sqrt(np.maximum(var_t, 1e-6))
         shock_pct = sigma_pct * z[step]
-        step_ret = shrunk_mu_daily + (shock_pct / 100.0)
-        sim_log_returns[step] = step_ret
+        sim_log_returns[step] = shrunk_mu_daily + (shock_pct / 100.0)
         var_t = omega + alpha * (shock_pct ** 2) + beta * var_t
 
     cum_log_returns = np.cumsum(sim_log_returns, axis=0)
-    # Path values: shape (trading_steps + 1, NUM_SIMULATION_PATHS)
     path_values = np.vstack(
         [
             np.full((1, NUM_SIMULATION_PATHS), principal, dtype=np.float64),
@@ -131,27 +157,28 @@ def calculate_portfolio_projection(stock_name, principal, future_date_str):
     years = calendar_days / 365.0
     cagr = (((final_value / principal) ** (1.0 / years)) - 1.0) * 100.0 if years > 0 else 0.0
 
-    # Institutional risk metrics
     annualized_vol_pct = float(np.sqrt(garch["last_var"]) / 100.0 * np.sqrt(252.0) * 100.0)
     if annualized_vol_pct <= 0:
         annualized_vol_pct = sample_sigma_daily * np.sqrt(252.0) * 100.0
 
-    expected_annual_return = (np.exp(shrunk_mu_daily * 252.0) - 1.0)
+    expected_annual_return = np.exp(shrunk_mu_daily * 252.0) - 1.0
     ann_vol_dec = max(annualized_vol_pct / 100.0, 1e-6)
     sharpe_ratio = (expected_annual_return - RISK_FREE_RATE_ANNUAL) / ann_vol_dec
 
     downside_returns = log_returns[log_returns < 0]
-    downside_vol_ann = max(float(downside_returns.std() * np.sqrt(252.0)), 1e-6) if len(downside_returns) > 5 else ann_vol_dec
+    downside_vol_ann = (
+        max(float(downside_returns.std() * np.sqrt(252.0)), 1e-6)
+        if len(downside_returns) > 5
+        else ann_vol_dec
+    )
     sortino_ratio = (expected_annual_return - RISK_FREE_RATE_ANNUAL) / downside_vol_ann
 
-    # Value at Risk (95%) & Conditional VaR (Expected Shortfall) in INR loss terms
     pnl = terminal_values - principal
     var_95_threshold = float(np.percentile(pnl, 5))
     var_95 = max(0.0, -var_95_threshold)
     tail_losses = pnl[pnl <= var_95_threshold]
     cvar_95 = max(0.0, -float(tail_losses.mean())) if len(tail_losses) > 0 else var_95
 
-    # Expected Median Max Drawdown across paths
     running_max = np.maximum.accumulate(path_values, axis=0)
     drawdowns = (path_values - running_max) / np.maximum(running_max, 1e-6)
     max_drawdown_pct = float(np.median(np.min(drawdowns, axis=0)) * 100.0)
@@ -165,40 +192,38 @@ def calculate_portfolio_projection(stock_name, principal, future_date_str):
     else:
         risk_score = "Low"
 
-    # Map trading-step dates cleanly between today and target future_date
     date_offsets = np.linspace(0, calendar_days, trading_steps + 1)
     dates = [(today + timedelta(days=int(round(d)))).strftime("%Y-%m-%d") for d in date_offsets]
 
-    # Deduplicate same-day timestamps if calendar_days < trading_steps
     chart_data, p10_chart, p90_chart = [], [], []
     seen_dates = set()
     for idx, d_str in enumerate(dates):
         if d_str in seen_dates:
             continue
         seen_dates.add(d_str)
-        chart_data.append({"time": d_str, "value": round(float(p50_curve[idx]), 2), "type": "Projected"})
-        p10_chart.append({"time": d_str, "value": round(float(p10_curve[idx]), 2)})
-        p90_chart.append({"time": d_str, "value": round(float(p90_curve[idx]), 2)})
+        chart_data.append({"time": d_str, "value": _sf(p50_curve[idx], principal, 2), "type": "Projected"})
+        p10_chart.append({"time": d_str, "value": _sf(p10_curve[idx], principal, 2)})
+        p90_chart.append({"time": d_str, "value": _sf(p90_curve[idx], principal, 2)})
 
     return {
         "stock": stock_name,
         "ticker": ticker,
-        "current_price": round(current_price, 2),
-        "units": round(units_bought, 2),
-        "final_value": round(final_value, 2),
-        "p10_value": round(p10_value, 2),
-        "p50_value": round(final_value, 2),
-        "p90_value": round(p90_value, 2),
-        "roi": round(roi, 2),
-        "cagr": round(cagr, 2),
+        "current_price": _sf(current_price, 0.0, 2),
+        "units": _sf(units_bought, 0.0, 2),
+        "final_value": _sf(final_value, principal, 2),
+        "p10_value": _sf(p10_value, principal, 2),
+        "p50_value": _sf(final_value, principal, 2),
+        "p90_value": _sf(p90_value, principal, 2),
+        "roi": _sf(roi, 0.0, 2),
+        "cagr": _sf(cagr, 0.0, 2),
         "risk_score": risk_score,
-        "risk_value": round(annualized_vol_pct, 2),
-        "sharpe_ratio": round(float(sharpe_ratio), 2),
-        "sortino_ratio": round(float(sortino_ratio), 2),
-        "max_drawdown_pct": round(abs(max_drawdown_pct), 2),
-        "var_95": round(var_95, 2),
-        "cvar_95": round(cvar_95, 2),
-        "probability_of_profit": round(prob_profit, 1),
+        "risk_value": _sf(annualized_vol_pct, 0.0, 2),
+        "sharpe_ratio": _sf(sharpe_ratio, 0.0, 2),
+        "sortino_ratio": _sf(sortino_ratio, 0.0, 2),
+        "max_drawdown_pct": _sf(abs(max_drawdown_pct), 0.0, 2),
+        "var_95": _sf(var_95, 0.0, 2),
+        "cvar_95": _sf(cvar_95, 0.0, 2),
+        "probability_of_profit": _sf(prob_profit, 50.0, 1),
         "simulation_paths": NUM_SIMULATION_PATHS,
         "volatility_model": garch["model_name"],
         "chart_data": chart_data,
@@ -207,24 +232,14 @@ def calculate_portfolio_projection(stock_name, principal, future_date_str):
     }, None
 
 
-def _sf(val, default=0.0, digits=None):
-    try:
-        n = float(val)
-        if not np.isfinite(n):
-            n = float(default)
-    except Exception:
-        n = float(default)
-    return round(n, digits) if digits is not None else n
-
-
-def _optimize_weights(mu_vec, cov_mat, mode="ai_bl", custom_weights=None):
+def _optimize_weights(mu_vec: np.ndarray, cov_mat: np.ndarray, mode: str = "ai_bl", custom_weights=None) -> np.ndarray:
     """Solve portfolio weights under AI Black-Litterman Max Sharpe, Min-Variance, Risk-Parity, or Custom."""
     n = len(mu_vec)
     equal_w = np.full(n, 1.0 / n, dtype=np.float64)
 
     if mode == "custom" and custom_weights and len(custom_weights) == n:
         cw = np.maximum(np.asarray(custom_weights, dtype=np.float64), 0.0)
-        if np.sum(cw) > 1e-8:
+        if np.sum(cw) > 1e-8 and np.all(np.isfinite(cw)):
             return cw / np.sum(cw)
         return equal_w
 
@@ -253,7 +268,6 @@ def _optimize_weights(mu_vec, cov_mat, mode="ai_bl", custom_weights=None):
         res = minimize(rp_obj, x0=equal_w, method="SLSQP", bounds=bounds, constraints=cons)
         return res.x if res.success else equal_w
 
-    # Default: AI Black-Litterman Max Forecast Sharpe Ratio
     def neg_sharpe(w):
         ret = float(w @ mu_vec)
         vol = float(np.sqrt(max(w @ cov_mat @ w, 1e-10)))
@@ -264,35 +278,54 @@ def _optimize_weights(mu_vec, cov_mat, mode="ai_bl", custom_weights=None):
 
 
 def optimize_multi_stock_portfolio(
-    stock_names, principal, future_date_str, mode="ai_bl", custom_weights=None
+    stock_names: list[str],
+    principal: float,
+    future_date_str: str,
+    mode: str = "ai_bl",
+    custom_weights=None,
+    preloaded_universe=None,
+    resolved_basket: list[tuple[str, str]] | None = None,
 ):
     """Optimize a 2-10 NSE basket and run Cholesky-correlated GARCH(1,1)-t Monte Carlo + Stress Tests."""
+    if not math.isfinite(float(principal)) or float(principal) <= 0.0:
+        return None, ("Principal must be a finite positive amount.", 400)
+
     if not isinstance(stock_names, list) or len(stock_names) < 2 or len(stock_names) > 10:
         return None, ("Select between 2 and 10 stocks to optimize a portfolio.", 400)
 
-    seen_tickers = []
-    basket = []
-    for name in stock_names:
-        resolved_name, ticker = resolve_ticker(name)
-        if not ticker:
-            return None, (f"Stock not found: {name}", 404)
-        if ticker not in seen_tickers:
-            seen_tickers.append(ticker)
-            basket.append((resolved_name or name, ticker))
+    try:
+        future_date = datetime.strptime(future_date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return None, ("Invalid future_date format. Expected YYYY-MM-DD.", 400)
 
-    if len(basket) < 2:
-        return None, ("Please select at least 2 distinct NSE stocks.", 400)
-
-    future_date = datetime.strptime(future_date_str, "%Y-%m-%d").date()
     today = datetime.now().date()
     if future_date <= today:
         return None, ("Future date must be in the future.", 400)
+
+    if resolved_basket is not None:
+        basket = resolved_basket
+    else:
+        seen_tickers = []
+        basket = []
+        for name in stock_names:
+            resolved_name, ticker = resolve_ticker(name)
+            if not ticker:
+                return None, (f"Stock not found: {name}", 404)
+            if ticker not in seen_tickers:
+                seen_tickers.append(ticker)
+                basket.append((resolved_name or name, ticker))
+
+    if len(basket) < 2:
+        return None, ("Please select at least 2 distinct NSE stocks.", 400)
 
     calendar_days = min((future_date - today).days, 365)
     trading_steps = max(1, int(round(calendar_days * (252.0 / 365.0))))
     years = max(calendar_days / 365.0, 1.0 / 252.0)
 
-    panel_df, raw_map, macro_df = get_live_universe_panel(force_refresh=False)
+    if preloaded_universe is not None:
+        panel_df, raw_map, macro_df = preloaded_universe
+    else:
+        panel_df, raw_map, macro_df = get_live_universe_panel(force_refresh=False)
 
     close_series = {}
     raw_frames = {}
@@ -316,7 +349,6 @@ def optimize_multi_stock_portfolio(
     tickers = [t for _, t in basket]
     names = [nm for nm, _ in basket]
 
-    # Shrinkage annualized covariance matrix (85% empirical + 15% diagonal prior)
     cov_daily = log_ret_df[tickers].cov().values.astype(np.float64)
     cov_ann_raw = cov_daily * 252.0
     cov_ann = 0.85 * cov_ann_raw + 0.15 * np.diag(np.diag(cov_ann_raw))
@@ -326,19 +358,21 @@ def optimize_multi_stock_portfolio(
     corr_mat = np.nan_to_num(corr_mat, nan=0.0)
     np.fill_diagonal(corr_mat, 1.0)
 
-    # AI Black-Litterman expected annual returns
     ai_horizon_avail = any(registry.get_bundle(h) is not None for h in [1, 5, 10, 21, 63])
     mu_ann = np.zeros(n, dtype=np.float64)
     garch_params = []
     indiv_vols = np.zeros(n, dtype=np.float64)
 
-    for i, (s_name, ticker) in enumerate(basket):
+    for i, (_, ticker) in enumerate(basket):
         sr = log_ret_df[ticker]
         sample_mu = float(sr.mean())
         sample_years = len(sr) / 252.0
         shrink_w = min(0.55, sample_years / (sample_years + 4.0))
         prior_mu = np.log(1.0 + EQUITY_PRIOR_DRIFT_ANNUAL) / 252.0
-        bayesian_ann = np.exp((shrink_w * np.clip(sample_mu, -0.002, 0.002) + (1.0 - shrink_w) * prior_mu) * 252.0) - 1.0
+        bayesian_ann = (
+            np.exp((shrink_w * np.clip(sample_mu, -0.002, 0.002) + (1.0 - shrink_w) * prior_mu) * 252.0)
+            - 1.0
+        )
 
         ai_ann = bayesian_ann
         if ai_horizon_avail:
@@ -351,6 +385,7 @@ def optimize_multi_stock_portfolio(
                     panel_df=panel_df,
                     raw_df=raw_frames[ticker],
                     macro_df=macro_df,
+                    include_explainability=False,
                 )
                 spot = float(price_df[ticker].iloc[-1])
                 if not err and f_price and spot > 0:
@@ -385,7 +420,6 @@ def optimize_multi_stock_portfolio(
         sharpe = (ret - RISK_FREE_RATE_ANNUAL) / max(vol, 1e-6)
         return {"vol_pct": _sf(vol * 100.0, 0.0, 2), "ret_pct": _sf(ret * 100.0, 0.0, 2), "sharpe": _sf(sharpe, 0.0, 2)}
 
-    # Efficient Frontier curve (18 target returns from min-var to max individual return)
     r_min = _port_stats(w_minvar)["ret_pct"] / 100.0
     r_max = max(float(np.max(mu_ann)), r_min + 0.01)
     frontier_curve = []
@@ -397,17 +431,11 @@ def optimize_multi_stock_portfolio(
         ]
         res = minimize(lambda w: float(w @ cov_ann @ w), x0=w_minvar, method="SLSQP", bounds=bounds, constraints=cons)
         if res.success:
-            st = _port_stats(res.x)
-            frontier_curve.append(st)
+            frontier_curve.append(_port_stats(res.x))
 
-    # Seeded random portfolios cloud for visual Efficient Frontier context
     rng_ef = np.random.default_rng(2026)
-    cloud = []
-    for _ in range(180):
-        rw = rng_ef.dirichlet(np.ones(n))
-        cloud.append(_port_stats(rw))
+    cloud = [_port_stats(rng_ef.dirichlet(np.ones(n))) for _ in range(180)]
 
-    # 5,000-path Correlated Cholesky GARCH(1,1)-t simulation
     n_paths = 5000
     rng_mc = np.random.default_rng(2026)
     try:
@@ -436,7 +464,6 @@ def optimize_multi_stock_portfolio(
         step_log = daily_mu[:, None] + (shock_pct / 100.0)
         cum_asset_log += step_log
         var_paths = omegas + alphas * (shock_pct ** 2) + betas * var_paths
-        # Weighted basket value from correlated asset paths
         port_paths[step + 1] = principal * np.sum(w_active[:, None] * np.exp(cum_asset_log), axis=0)
 
     p10_curve = np.percentile(port_paths, 10, axis=1)
@@ -475,7 +502,6 @@ def optimize_multi_stock_portfolio(
         p10_chart.append({"time": d_str, "value": _sf(p10_curve[idx], principal, 2)})
         p90_chart.append({"time": d_str, "value": _sf(p90_curve[idx], principal, 2)})
 
-    # Marginal risk contribution breakdown
     port_var = max(float(w_active @ cov_ann @ w_active), 1e-10)
     marginal_rc = (w_active * (cov_ann @ w_active)) / port_var
 
@@ -495,14 +521,12 @@ def optimize_multi_stock_portfolio(
         )
     allocations.sort(key=lambda x: x["weight_pct"], reverse=True)
 
-    # Stress Tests: empirical basket 21d/63d worst windows + beta-scaled macro shocks
     port_hist_ret = log_ret_df[tickers].values @ w_active
     roll_21 = pd.Series(port_hist_ret).rolling(21).sum().dropna()
     roll_63 = pd.Series(port_hist_ret).rolling(63).sum().dropna()
     worst_21_pct = _sf((np.exp(float(roll_21.min())) - 1.0) * 100.0, -8.0, 2) if len(roll_21) > 0 else -8.0
     worst_63_pct = _sf((np.exp(float(roll_63.min())) - 1.0) * 100.0, -14.0, 2) if len(roll_63) > 0 else -14.0
 
-    # Estimate basket beta vs Nifty if available in macro_df
     port_beta = 1.0
     if macro_df is not None and "nifty_close" in macro_df.columns:
         ns = macro_df["nifty_close"].dropna()
@@ -573,3 +597,47 @@ def optimize_multi_stock_portfolio(
         "simulation_paths": n_paths,
         "ai_models_used": ai_horizon_avail,
     }, None
+
+
+async def calculate_portfolio_projection_async(stock_name: str, principal: float, future_date_str: str):
+    """Non-blocking wrapper for single-stock GARCH Monte Carlo projection."""
+    _, ticker = await resolve_ticker_async(stock_name)
+    if not ticker:
+        return None, ("Stock not found.", 404)
+    return await runtime.run_cpu(
+        calculate_portfolio_projection, stock_name, principal, future_date_str, ticker
+    )
+
+
+async def optimize_multi_stock_portfolio_async(
+    stock_names: list[str],
+    principal: float,
+    future_date_str: str,
+    mode: str = "ai_bl",
+    custom_weights=None,
+):
+    """Non-blocking wrapper for multi-stock Black-Litterman optimization and correlated Monte Carlo."""
+    seen_tickers = []
+    basket = []
+    for name in stock_names:
+        resolved_name, ticker = await resolve_ticker_async(name)
+        if not ticker:
+            return None, (f"Stock not found: {name}", 404)
+        if ticker not in seen_tickers:
+            seen_tickers.append(ticker)
+            basket.append((resolved_name or name, ticker))
+
+    if len(basket) < 2:
+        return None, ("Please select at least 2 distinct NSE stocks.", 400)
+
+    universe = await get_live_universe_panel_async(force_refresh=False)
+    return await runtime.run_cpu(
+        optimize_multi_stock_portfolio,
+        stock_names,
+        principal,
+        future_date_str,
+        mode,
+        custom_weights,
+        universe,
+        basket,
+    )

@@ -1,0 +1,47 @@
+# Environment & secrets (never commit live keys)
+.env
+.env.*
+!.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+.firebaserc
+*.pem
+*.key
+*serviceAccount*.json
+*firebase-adminsdk*.json
+
+# Personal / non-code documents
+docs/Internship report.docx
+*.docx
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Frontend build & dependencies
+frontend/node_modules/
+frontend/build/
+frontend/coverage/
+
+# Logs, temp & OS metadata
+*.log
+*.tmp
+logs/
+.DS_Store
+Thumbs.db
+desktop.ini

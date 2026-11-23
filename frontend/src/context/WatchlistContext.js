@@ -1,14 +1,46 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
 const WatchlistContext = createContext(null);
+const MAX_WATCHLIST_ITEMS = 100;
 
-const storageKeyFor = (userKey) => `neurostock-watchlist-${userKey || 'guest'}`;
+const sanitizeKeyPart = (raw) => String(raw || 'guest').replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 80);
+const storageKeyFor = (userKey) => `neurostock-watchlist-${sanitizeKeyPart(userKey)}`;
+
+const sanitizePositiveNumber = (val) => {
+  if (val === null || val === undefined || val === '') return null;
+  const num = Number(val);
+  return Number.isFinite(num) && num > 0 && num < 1e9 ? num : null;
+};
+
+export const sanitizeWatchlistItems = (rawParsed) => {
+  if (!Array.isArray(rawParsed)) return [];
+  const seen = new Set();
+  const clean = [];
+  for (const item of rawParsed) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const symbol = typeof item.symbol === 'string' ? item.symbol.trim().slice(0, 32) : '';
+    const name = typeof item.name === 'string' ? item.name.trim().slice(0, 64) : '';
+    if (!symbol && !name) continue;
+    const normSym = symbol || name;
+    if (seen.has(normSym)) continue;
+    seen.add(normSym);
+    clean.push({
+      name: name || normSym.split('.')[0],
+      symbol: normSym,
+      addedAt: typeof item.addedAt === 'string' ? item.addedAt.slice(0, 40) : new Date().toISOString(),
+      alertAbove: sanitizePositiveNumber(item.alertAbove),
+      alertBelow: sanitizePositiveNumber(item.alertBelow),
+    });
+    if (clean.length >= MAX_WATCHLIST_ITEMS) break;
+  }
+  return clean;
+};
 
 const loadStoredWatchlist = (userKey) => {
   try {
     const raw = window.localStorage.getItem(storageKeyFor(userKey));
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    return sanitizeWatchlistItems(parsed);
   } catch {
     return [];
   }
@@ -23,9 +55,10 @@ export const WatchlistProvider = ({ userKey = 'guest', children }) => {
 
   const persist = useCallback(
     (next) => {
-      setItems(next);
+      const sanitized = sanitizeWatchlistItems(next);
+      setItems(sanitized);
       try {
-        window.localStorage.setItem(storageKeyFor(userKey), JSON.stringify(next));
+        window.localStorage.setItem(storageKeyFor(userKey), JSON.stringify(sanitized));
       } catch {
         // Ignore storage quota errors
       }
@@ -77,22 +110,16 @@ export const WatchlistProvider = ({ userKey = 'guest', children }) => {
 
   const setPriceAlert = useCallback(
     (symbol, { alertAbove, alertBelow }) => {
-      const parsedAbove =
-        alertAbove === '' || alertAbove === null || alertAbove === undefined
-          ? null
-          : Number(alertAbove);
-      const parsedBelow =
-        alertBelow === '' || alertBelow === null || alertBelow === undefined
-          ? null
-          : Number(alertBelow);
+      const parsedAbove = sanitizePositiveNumber(alertAbove);
+      const parsedBelow = sanitizePositiveNumber(alertBelow);
 
       persist(
         items.map((it) =>
           it.symbol === symbol
             ? {
                 ...it,
-                alertAbove: Number.isFinite(parsedAbove) && parsedAbove > 0 ? parsedAbove : null,
-                alertBelow: Number.isFinite(parsedBelow) && parsedBelow > 0 ? parsedBelow : null,
+                alertAbove: parsedAbove,
+                alertBelow: parsedBelow,
               }
             : it
         )

@@ -6,6 +6,7 @@ import { Callout, Card, CardHeader, EmptyState, Icon, Loader } from '../../compo
 import { useTheme } from '../../context/ThemeContext';
 import { getHistoricalData } from '../../services/apiClient';
 import { applyChartTheme, bindResponsiveCharts, getChartColors, getLightChartOptions } from '../../utils/chartHelpers';
+import { isCancelledError } from '../../utils/formatters';
 
 const TechnicalPriceChart = ({ stockName }) => {
   const chartContainerRef1 = useRef();
@@ -74,14 +75,14 @@ const TechnicalPriceChart = ({ stockName }) => {
   }, [theme]);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
 
     const fetchDataAndRender = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        const data = await getHistoricalData(stockName);
-        if (cancelled) return;
+        const data = await getHistoricalData(stockName, controller.signal);
+        if (controller.signal.aborted) return;
 
         if (!data || !data.ohlc || data.ohlc.length === 0) {
           setError('No data available for this stock.');
@@ -167,12 +168,11 @@ const TechnicalPriceChart = ({ stockName }) => {
           });
         }
       } catch (err) {
-        if (!cancelled) {
-          console.error('Error fetching historical data:', err);
+        if (!controller.signal.aborted && !isCancelledError(err)) {
           setError('Failed to load chart data.');
         }
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!controller.signal.aborted) setIsLoading(false);
       }
     };
 
@@ -190,7 +190,7 @@ const TechnicalPriceChart = ({ stockName }) => {
     );
 
     return () => {
-      cancelled = true;
+      controller.abort();
       cleanupResize();
     };
   }, [stockName]);

@@ -1,0 +1,73 @@
+name: Security & Quality CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend-security-and-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend test & lint dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pytest pytest-asyncio ruff bandit
+
+      - name: Run Ruff lint
+        run: ruff check backend ml tests
+
+      - name: Run Bandit static security scan
+        run: bandit -r backend -x backend/__pycache__ -ll -ii
+
+      - name: Verify model SHA-256 manifest
+        run: |
+          python -c "from backend.security.integrity import verify_all_manifest_entries; verify_all_manifest_entries()"
+
+      - name: Run backend security and async API tests
+        run: pytest -v tests/
+
+  frontend-security-and-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit (high/critical)
+        run: npm audit --audit-level=high || true
+
+      - name: Run Jest unit and security tests
+        env:
+          CI: "true"
+        run: npm test -- --watchAll=false
+
+      - name: Build production bundle
+        env:
+          CI: "true"
+        run: npm run build

@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
     <link rel="icon" type="image/png" href="%PUBLIC_URL%/Logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#f9f9ff" />
@@ -22,18 +23,7 @@
       rel="stylesheet"
     />
     <title>NeuroStock — NSE Stock Trend Predictor AI</title>
-    <script>
-      (function () {
-        try {
-          if (window.localStorage.getItem('neurostock-theme') === 'dark') {
-            document.documentElement.setAttribute('data-theme', 'dark');
-            document.documentElement.style.colorScheme = 'dark';
-            var meta = document.querySelector('meta[name="theme-color"]');
-            if (meta) meta.setAttribute('content', '#0b0f17');
-          }
-        } catch (e) {}
-      })();
-    </script>
+    <script src="%PUBLIC_URL%/theme-init.js"></script>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
