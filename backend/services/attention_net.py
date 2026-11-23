@@ -3,6 +3,8 @@
 Designed for native NVIDIA RTX 4060 CUDA (AMP FP16/TF32) training across ~150,000+ NSE panel sequences.
 """
 
+import os
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,6 +12,8 @@ import torch.nn.functional as F
 
 def get_torch_device():
     """Return CUDA device when an NVIDIA GPU is available and enable Tensor Core optimizations."""
+    if os.environ.get("NEUROSTOCK_FORCE_CPU", "").strip().lower() in ("1", "true", "yes"):
+        return torch.device("cpu")
     if torch.cuda.is_available():
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
