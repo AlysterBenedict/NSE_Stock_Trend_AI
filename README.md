@@ -87,6 +87,10 @@ Stock_Predictor/
 
 ## Installation & Setup
 
+> **Important Note for New Repo Installers:**
+> 1. **Firebase Project Required:** `frontend/src/services/firebaseAuth.js` initializes Firebase Auth from `frontend/.env`, and `frontend/src/App.js` gates the workspace behind Firebase login. Because `.env` files are gitignored for security, fresh clones only include `frontend/.env.example` and `backend/.env.example` with placeholder values (`your-firebase-project-id`, `your-firebase-web-api-key`). You **must** create your own Firebase project, enable **Email/Password** authentication in Firebase Console, and populate `backend/.env` and `frontend/.env` before you can sign in and use the app.
+> 2. **Local Entrypoint (`backend/app.py` vs `app.py`):** Always run `python backend/app.py` for local development. The root `app.py` is the Hugging Face Spaces entrypoint and imports `gradio` and `spaces` (provided automatically by Hugging Face Spaces' Gradio SDK, not listed in `requirements.txt` or `backend/requirements.txt`), so running `python app.py` locally will fail unless you separately run `pip install gradio spaces`.
+
 ### 1. Clone the Repository
 ```powershell
 git clone https://github.com/AlysterBenedict/NSE_Stock_Trend_AI.git
@@ -188,9 +192,10 @@ npm start
 > Ensure `REACT_APP_API_BASE_URL` in `frontend/.env` is `""` or commented out when running locally so API calls route through the local proxy (`http://127.0.0.1:5000`) instead of a remote deployment.
 
 ### Local Hugging Face Space Wrapper Test (Optional)
-To test the root Gradio + FastAPI ASGI entrypoint (`app.py`, serving on port `7860` with `/gradio_api/*` routing):
+To test the root Gradio + FastAPI ASGI entrypoint (`app.py`, serving on port `7860` with `/gradio_api/*` routing) locally, install the Space SDK packages first:
 ```powershell
 conda activate stock_predictor_env
+pip install gradio spaces
 python app.py
 ```
 
@@ -272,7 +277,8 @@ pip install -U huggingface_hub
 hf auth login
 
 # Upload the repository to your Space (replace <HF_USERNAME>/<SPACE_NAME>)
-hf upload <HF_USERNAME>/<SPACE_NAME> . --repo-type=space --exclude "frontend/node_modules/*" "frontend/build/*" "frontend/.env" "backend/.env" ".git/*" ".firebase/*"
+# Note: hf upload does not read .gitignore automatically, so exclude local secrets/build/docs explicitly
+hf upload <HF_USERNAME>/<SPACE_NAME> . --repo-type=space --exclude "frontend/node_modules/*" "frontend/build/*" "frontend/.env*" "backend/.env*" ".env*" ".git/*" ".firebase/*" ".firebaserc" "API keys.txt" "*.key" "*vault*.json" "docs/*" "*.log" "__pycache__/*"
 ```
 
 #### C. Option 2 — Push via Git + Git LFS
