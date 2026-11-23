@@ -20,6 +20,7 @@ backend/.llm_vault.key
 
 # Personal / non-code documents
 docs/Internship report.docx
+docs/hf_firebase_connection_steps.txt
 *.docx
 
 # Python artifacts

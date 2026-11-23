@@ -1,5 +1,6 @@
 """Market data fetching, technical indicators, ticker resolution, and chart formatting."""
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import re
 import threading
@@ -377,52 +378,84 @@ async def get_historical_chart_data_async(ticker: str) -> dict | None:
     )
 
 
+def _build_overview_item(name: str, ticker: str, price, prev, open_price) -> dict | None:
+    if pd.isna(price) or pd.isna(prev) or float(prev) <= 0.0:
+        return None
+    price_f = float(price)
+    prev_f = float(prev)
+    change = price_f - prev_f
+    p_change = (change / prev_f) * 100.0
+    return {
+        "name": name,
+        "symbol": ticker,
+        "price": round(price_f, 2),
+        "open": round(float(open_price), 2) if not pd.isna(open_price) else 0.0,
+        "close": round(prev_f, 2),
+        "change": round(change, 2),
+        "pChange": round(p_change, 2),
+    }
+
+
+def _fetch_overview_via_chart_api() -> list[dict]:
+    """Concurrent Yahoo v8 chart JSON fallback for bulk NSE market overview."""
+
+    def _fetch_one(item: tuple[str, str]) -> dict | None:
+        name, ticker = item
+        try:
+            df = _fetch_yahoo_chart_via_requests(ticker, period="5d", timeout=10)
+            if df is None or df.empty or "Close" not in df:
+                return None
+            closes = df["Close"].dropna()
+            if len(closes) < 2:
+                return None
+            opens = df["Open"] if "Open" in df else closes
+            return _build_overview_item(name, ticker, closes.iloc[-1], closes.iloc[-2], opens.iloc[-1])
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        results = list(pool.map(_fetch_one, STOCK_LIST.items()))
+    return [row for row in results if row is not None]
+
+
 def get_market_overview() -> list[dict]:
-    """Fetch bulk 5-day prices for all configured NSE stocks and compute daily change metrics."""
+    """Fetch bulk 5-day prices for all configured NSE stocks with v8 JSON chart fallback."""
     tickers = list(STOCK_LIST.values())
-    with runtime.yfinance_lock:
-        data = yf.download(tickers, period="5d", progress=False)
+    data = None
+    try:
+        with runtime.yfinance_lock:
+            data = yf.download(tickers, period="5d", progress=False)
+    except Exception as exc:
+        logger.warning("Bulk yfinance download failed for market overview: %s", exc)
 
     market_summary: list[dict] = []
-    if data is None or data.empty:
-        return market_summary
+    if data is not None and not data.empty:
+        closes = data["Close"] if "Close" in data else data
+        opens = data["Open"] if "Open" in data else data
+        if len(closes) >= 2:
+            current_closes = closes.iloc[-1]
+            prev_closes = closes.iloc[-2]
+            current_opens = opens.iloc[-1]
 
-    closes = data["Close"] if "Close" in data else data
-    opens = data["Open"] if "Open" in data else data
-    if len(closes) < 2:
-        return market_summary
+            for name, ticker in STOCK_LIST.items():
+                try:
+                    if ticker not in current_closes:
+                        continue
+                    item = _build_overview_item(
+                        name,
+                        ticker,
+                        current_closes[ticker],
+                        prev_closes[ticker],
+                        current_opens[ticker],
+                    )
+                    if item is not None:
+                        market_summary.append(item)
+                except Exception:
+                    continue
 
-    current_closes = closes.iloc[-1]
-    prev_closes = closes.iloc[-2]
-    current_opens = opens.iloc[-1]
-
-    for name, ticker in STOCK_LIST.items():
-        try:
-            if ticker not in current_closes:
-                continue
-            price = current_closes[ticker]
-            prev = prev_closes[ticker]
-            open_price = current_opens[ticker]
-            if pd.isna(price) or pd.isna(prev) or float(prev) <= 0.0:
-                continue
-
-            price_f = float(price)
-            prev_f = float(prev)
-            change = price_f - prev_f
-            p_change = (change / prev_f) * 100.0
-            market_summary.append(
-                {
-                    "name": name,
-                    "symbol": ticker,
-                    "price": round(price_f, 2),
-                    "open": round(float(open_price), 2) if not pd.isna(open_price) else 0.0,
-                    "close": round(prev_f, 2),
-                    "change": round(change, 2),
-                    "pChange": round(p_change, 2),
-                }
-            )
-        except Exception:
-            continue
+    if not market_summary:
+        logger.info("Bulk yfinance market overview returned 0 rows; using Yahoo v8 chart API fallback.")
+        market_summary = _fetch_overview_via_chart_api()
 
     return market_summary
 
@@ -430,12 +463,22 @@ def get_market_overview() -> list[dict]:
 async def get_market_overview_async() -> list[dict]:
     """Cached singleflight NSE market overview (45s TTL during market hours, 300s off-hours)."""
     ttl = 45.0 if _is_nse_market_hours() else 300.0
-    return await _MARKET_OVERVIEW_SINGLEFLIGHT.get_or_compute(
-        key="nse_overview",
-        factory=lambda: runtime.run_io(get_market_overview),
-        ttl=ttl,
-        stale_on_error=True,
-    )
+
+    async def _compute_non_empty() -> list[dict]:
+        rows = await runtime.run_io(get_market_overview)
+        if not rows:
+            raise RuntimeError("NSE market overview returned zero rows.")
+        return rows
+
+    try:
+        return await _MARKET_OVERVIEW_SINGLEFLIGHT.get_or_compute(
+            key="nse_overview",
+            factory=_compute_non_empty,
+            ttl=ttl,
+            stale_on_error=True,
+        )
+    except RuntimeError:
+        return []
 
 
 def _fetch_with_retry(fn, attempts: int = 3, delay: float = 0.4):

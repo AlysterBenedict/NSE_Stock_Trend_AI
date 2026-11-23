@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "neurostock",
     "public": "frontend/build",
     "ignore": [
       "firebase.json",
