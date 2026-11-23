@@ -12,7 +12,7 @@ cachetools>=5.5.0,<7.0.0
 yfinance>=0.2.50
 numpy>=2.0.0
 pandas>=2.2.0
-scipy>=1.14.0
+scipy>=1.18.1
 arch>=7.0.0
 
 # Machine Learning & Gradient Boosting
